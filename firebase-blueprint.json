@@ -1,0 +1,172 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Jewel Botanica handcrafted jewelry catalog product",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique product identifier"
+        },
+        "name": {
+          "type": "string",
+          "description": "Product display title",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "category": {
+          "type": "string",
+          "description": "Jewelry collection category (predefined or custom)",
+          "minLength": 2,
+          "maxLength": 60
+        },
+        "description": {
+          "type": "string",
+          "description": "Artisan piece narrative and craftsmanship details",
+          "minLength": 5,
+          "maxLength": 2000
+        },
+        "images": {
+          "type": "array",
+          "description": "List of high-resolution image URLs or base64 data URIs"
+        },
+        "videoUrl": {
+          "type": "string",
+          "description": "Optional video presentation URL or data URI",
+          "maxLength": 2000000
+        },
+        "status": {
+          "type": "string",
+          "description": "Publication state",
+          "enum": ["Published", "Draft", "Archived"]
+        },
+        "metal": {
+          "type": "string",
+          "description": "Metal composition details (e.g. 92.5 Sterling Silver)",
+          "maxLength": 100
+        },
+        "gemstones": {
+          "type": "string",
+          "description": "Gemstones description (e.g. Hydro Zambian Emeralds, CZ)",
+          "maxLength": 150
+        },
+        "occasion": {
+          "type": "string",
+          "description": "Intended celebrations (e.g. Bridal, Sangeet)",
+          "maxLength": 150
+        },
+        "customizable": {
+          "type": "boolean",
+          "description": "Whether atelier customization is available"
+        },
+        "featured": {
+          "type": "boolean",
+          "description": "Whether to highlight on homepage"
+        },
+        "authorEmail": {
+          "type": "string",
+          "description": "Admin email who created or updated the product",
+          "maxLength": 150
+        },
+        "authorUid": {
+          "type": "string",
+          "description": "Admin UID",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last modified timestamp"
+        }
+      },
+      "required": ["name", "category", "description", "images", "status", "authorUid", "createdAt", "updatedAt"]
+    },
+    "Inquiry": {
+      "title": "Inquiry",
+      "description": "Customer inquiry from website contact forms or bespoke design inquiries",
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["BESPOKE_CUSTOMIZATION", "CONTACT_CONVERSATION"]
+        },
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "jewelleryType": {
+          "type": "string"
+        },
+        "inquiry": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["New", "Contacted", "Closed"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Privileged administrator record",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Administrator email address"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": {
+        "$ref": "#/entities/Product"
+      },
+      "description": "Catalog products created and managed by Jewel Botanica administrators"
+    },
+    "/admins/{adminUid}": {
+      "schema": {
+        "$ref": "#/entities/Admin"
+      },
+      "description": "Privileged administrator identities"
+    },
+    "/inquiries/{inquiryId}": {
+      "schema": {
+        "$ref": "#/entities/Inquiry"
+      },
+      "description": "Customer inquiries and bespoke requests submitted from website"
+    },
+    "/settings/{settingId}": {
+      "description": "Site-wide configuration, hero slideshow, promo discounts, and community follower counts"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Jewel Botanica — Silver Jewellery",
+  "description": "Premium 92.5 silver jewellery brand based in Hyderabad, India. Discover statement bridal creations, intricate chokers, haarams, and bespoke craftsmanship.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

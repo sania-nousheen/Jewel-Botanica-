@@ -1,0 +1,101 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Security Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == 'google.com');
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Bootstrapped admin verification
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email != null && request.auth.token.email.lower() == 'saniaeventplanner@gmail.com')
+      );
+    }
+
+    // Product validation helper (The Anti-Update-Gap Blueprint)
+    function isValidProduct(data) {
+      return data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        data.category is string && data.category.size() >= 2 && data.category.size() <= 60 &&
+        data.description is string && data.description.size() >= 5 && data.description.size() <= 5000 &&
+        data.images is list && data.images.size() <= 10 &&
+        data.status is string && (data.status == 'Published' || data.status == 'Draft' || data.status == 'Archived') &&
+        data.authorUid is string && data.authorUid.size() <= 128 &&
+        (!('videoUrl' in data) || (data.videoUrl is string && data.videoUrl.size() <= 5000000)) &&
+        (!('metal' in data) || (data.metal is string && data.metal.size() <= 150)) &&
+        (!('gemstones' in data) || (data.gemstones is string && data.gemstones.size() <= 200)) &&
+        (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 200)) &&
+        (!('customizable' in data) || data.customizable is bool) &&
+        (!('featured' in data) || data.featured is bool) &&
+        (!('authorEmail' in data) || (data.authorEmail is string && data.authorEmail.size() <= 150));
+    }
+
+    // Admins collection: read by signed-in users, write by admin
+    match /admins/{adminUid} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow write: if isAdmin() && isValidId(adminUid);
+    }
+
+    // Products collection:
+    // - Public / customers can read Published products
+    // - Authenticated Admins can read (including drafts/archived) and manage (create, update, delete)
+    match /products/{productId} {
+      allow get: if isValidId(productId) && (
+        resource.data.status == 'Published' || isAdmin()
+      );
+
+      allow list: if (
+        resource.data.status == 'Published' || isAdmin()
+      );
+
+      allow create: if isAdmin() && isValidId(productId) &&
+        isValidProduct(request.resource.data) &&
+        request.resource.data.authorUid == request.auth.uid &&
+        request.resource.data.keys().hasAll(['name', 'category', 'description', 'images', 'status', 'authorUid', 'createdAt', 'updatedAt']) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+
+      allow update: if isAdmin() && isValidId(productId) &&
+        isValidProduct(request.resource.data) &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time;
+
+      allow delete: if isAdmin() && isValidId(productId);
+    }
+
+    // Settings collection (e.g. live Instagram follower count, hero slides, promo popup, profile)
+    match /settings/{settingId} {
+      allow get: if true;
+      allow list: if true;
+      allow write: if isAdmin();
+    }
+
+    // Inquiries collection:
+    // - Anyone can create a customer inquiry (from Bespoke Design Inquiry or Start a Conversation)
+    // - Admins can read, update (mark contacted/closed), and delete
+    match /inquiries/{inquiryId} {
+      allow create: if isValidId(inquiryId) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 120 &&
+        request.resource.data.createdAt == request.time;
+      allow read, update, delete: if isAdmin();
+    }
+  }
+}
