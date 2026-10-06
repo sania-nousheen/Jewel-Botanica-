@@ -10,13 +10,69 @@ import {
   onSnapshot,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { db, auth, BOOTSTRAPPED_ADMIN_EMAIL } from './firebase';
 import { OperationType, handleFirestoreError } from './firestoreError';
 import { JewelryItem, JewelryCategory } from '../types/jewelry';
 import { CATALOGUE_ITEMS } from '../data/jewelryData';
 
 const PRODUCTS_COLLECTION = 'products';
 const DELETED_PRODUCTS_KEY = 'jb_deleted_product_ids_v1';
+const LOCAL_PRODUCTS_CACHE_KEY = 'jb_local_products_cache_v1';
+const UNIVERSAL_ADMIN_STORAGE_KEY = 'jb_universal_admin_verified_v1';
+
+function getActiveAdminIdentity(): { email: string; uid: string } | null {
+  if (auth.currentUser) {
+    return {
+      email: auth.currentUser.email || BOOTSTRAPPED_ADMIN_EMAIL,
+      uid: auth.currentUser.uid,
+    };
+  }
+  try {
+    const saved = localStorage.getItem(UNIVERSAL_ADMIN_STORAGE_KEY);
+    if (saved && saved.toLowerCase().trim() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase()) {
+      return {
+        email: BOOTSTRAPPED_ADMIN_EMAIL,
+        uid: 'admin-universal-uid',
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export function getLocalCachedProducts(): JewelryItem[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_PRODUCTS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalCachedProduct(item: JewelryItem) {
+  try {
+    const list = getLocalCachedProducts();
+    const idx = list.findIndex((p) => p.id === item.id);
+    if (idx >= 0) {
+      list[idx] = item;
+    } else {
+      list.unshift(item);
+    }
+    localStorage.setItem(LOCAL_PRODUCTS_CACHE_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.warn('Local product cache notice:', e);
+  }
+}
+
+function removeLocalCachedProduct(productId: string) {
+  try {
+    const list = getLocalCachedProducts().filter((p) => p.id !== productId);
+    localStorage.setItem(LOCAL_PRODUCTS_CACHE_KEY, JSON.stringify(list));
+  } catch {
+    // ignore
+  }
+}
 
 export function getDeletedProductIds(): string[] {
   try {

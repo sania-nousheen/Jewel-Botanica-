@@ -3,12 +3,14 @@ import { MessageCircle, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import { CATALOGUE_ITEMS, BRAND_INFO } from '../data/jewelryData';
 import { JewelryCategory, JewelryItem } from '../types/jewelry';
 import { getPublishedProducts, getDeletedProductIds } from '../lib/productService';
+import { PageSectionItem } from '../lib/websiteSettingsService';
 
 interface CatalogueProps {
   activeCategory: JewelryCategory;
   onSelectCategory: (cat: JewelryCategory) => void;
   onViewProduct: (item: JewelryItem) => void;
   refreshTrigger?: number;
+  sectionData?: PageSectionItem;
 }
 
 export const Catalogue: React.FC<CatalogueProps> = ({
@@ -16,6 +18,7 @@ export const Catalogue: React.FC<CatalogueProps> = ({
   onSelectCategory,
   onViewProduct,
   refreshTrigger = 0,
+  sectionData,
 }) => {
   const [showAll, setShowAll] = useState(false);
   const [liveProducts, setLiveProducts] = useState<JewelryItem[]>([]);
@@ -75,24 +78,81 @@ export const Catalogue: React.FC<CatalogueProps> = ({
   // Show only 3 cards by default, or all when showAll is true
   const visibleItems = showAll ? filteredItems : filteredItems.slice(0, 3);
 
+  const headingText = sectionData?.heading || 'THE JEWEL BOTANICA CATALOGUE';
+
   return (
     <section
       id="catalogue"
+      style={{
+        backgroundColor: sectionData?.advanced?.backgroundColor || '#0A0A0A',
+        paddingTop: sectionData?.advanced?.paddingTop ? `${sectionData.advanced.paddingTop}px` : undefined,
+        paddingBottom: sectionData?.advanced?.paddingBottom ? `${sectionData.advanced.paddingBottom}px` : undefined,
+        minHeight: sectionData?.advanced?.minHeightVh ? `${sectionData.advanced.minHeightVh}vh` : undefined,
+      }}
       className="relative py-24 sm:py-32 px-6 sm:px-12 bg-[#0A0A0A] overflow-hidden"
     >
       {/* Background Ambience */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[700px] h-[500px] bg-[radial-gradient(circle,rgba(14,90,79,0.06)_0%,transparent_70%)] pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto">
+      <div
+        className={`mx-auto ${
+          sectionData?.advanced?.contentWidth === 'Boxed' ? 'max-w-5xl' : 'max-w-7xl'
+        }`}
+      >
         {/* Header Block */}
-        <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-14">
-          <h2 className="font-bodoni text-xl sm:text-2xl md:text-3xl font-light tracking-[0.22em] sm:tracking-[0.28em] text-[#F5F2EA] uppercase flex items-center justify-center flex-wrap gap-2.5">
-            <span className="opacity-70">THE</span>
-            <span className="font-normal text-[#FFFFFF] tracking-[0.24em] sm:tracking-[0.3em]">
-              JEWEL BOTANICA
+        <div
+          className="max-w-2xl mx-auto mb-10 sm:mb-14"
+          style={{ textAlign: sectionData?.typography?.textAlign || 'center' }}
+        >
+          {sectionData?.badgeText && (
+            <span
+              style={{
+                color: sectionData?.typography?.subheadingColor || '#A2DEC8',
+                fontSize: sectionData?.typography?.subheadingSizePx
+                  ? `${sectionData.typography.subheadingSizePx}px`
+                  : undefined,
+              }}
+              className="text-[10px] font-sans tracking-[0.25em] uppercase text-[#A2DEC8] block mb-2"
+            >
+              {sectionData.badgeText}
             </span>
-            <span className="opacity-70">CATALOGUE</span>
+          )}
+          <h2
+            style={{
+              fontFamily: sectionData?.typography?.fontFamily || undefined,
+              color: sectionData?.typography?.headingColor || '#F5F2EA',
+              fontSize: sectionData?.typography?.headingSizePx
+                ? `${sectionData.typography.headingSizePx}px`
+                : undefined,
+              fontWeight: sectionData?.typography?.fontWeight || undefined,
+            }}
+            className="font-bodoni text-xl sm:text-2xl md:text-3xl font-light tracking-[0.22em] sm:tracking-[0.28em] text-[#F5F2EA] uppercase flex items-center justify-center flex-wrap gap-2.5"
+          >
+            {headingText === 'THE JEWEL BOTANICA CATALOGUE' ? (
+              <>
+                <span className="opacity-70">THE</span>
+                <span className="font-normal text-[#FFFFFF] tracking-[0.24em] sm:tracking-[0.3em]">
+                  JEWEL BOTANICA
+                </span>
+                <span className="opacity-70">CATALOGUE</span>
+              </>
+            ) : (
+              <span>{headingText}</span>
+            )}
           </h2>
+          {sectionData?.matterText && (
+            <p
+              style={{
+                color: sectionData?.typography?.bodyColor || '#B8B8B5',
+                fontSize: sectionData?.typography?.bodySizePx
+                  ? `${sectionData.typography.bodySizePx}px`
+                  : undefined,
+              }}
+              className="text-xs sm:text-sm text-[#B8B8B5] font-light tracking-wide mt-3 whitespace-pre-line"
+            >
+              {sectionData.matterText}
+            </p>
+          )}
         </div>
 
         {/* Category Filters (Horizontal Segmented Control) */}

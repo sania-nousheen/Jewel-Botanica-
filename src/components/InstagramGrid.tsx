@@ -2,48 +2,115 @@ import React, { useState, useEffect } from 'react';
 import { Instagram } from 'lucide-react';
 import { BRAND_INFO, brandLogoImg } from '../data/jewelryData';
 import { subscribeFollowerCount, formatFollowerCount } from '../lib/communityService';
+import { PageSectionItem } from '../lib/websiteSettingsService';
 
 interface InstagramGridProps {
   customLogoImage?: string;
+  sectionData?: PageSectionItem;
+  followerCountOverride?: number;
 }
 
-export const InstagramGrid: React.FC<InstagramGridProps> = ({ customLogoImage }) => {
-  const [followerCount, setFollowerCount] = useState<number>(104280);
+export const InstagramGrid: React.FC<InstagramGridProps> = ({
+  customLogoImage,
+  sectionData,
+  followerCountOverride,
+}) => {
+  const [followerCount, setFollowerCount] = useState<number>(
+    typeof followerCountOverride === 'number' && followerCountOverride > 0
+      ? followerCountOverride
+      : 104280
+  );
+
+  // Sync whenever followerCountOverride prop changes from websiteSettings
+  useEffect(() => {
+    if (typeof followerCountOverride === 'number' && followerCountOverride > 0) {
+      setFollowerCount(followerCountOverride);
+    }
+  }, [followerCountOverride]);
 
   // Subscribe to live follower count updates from Firestore with instant cache fallback
   useEffect(() => {
     const unsubscribe = subscribeFollowerCount((count) => {
-      setFollowerCount(count);
+      if (typeof followerCountOverride === 'number' && followerCountOverride > 0 && count === 104260) {
+        setFollowerCount(followerCountOverride);
+      } else {
+        setFollowerCount(count);
+      }
     });
     return () => unsubscribe();
-  }, []);
+  }, [followerCountOverride]);
+
+  const badgeText = sectionData?.badgeText || 'Social Presence';
+  const headingText = sectionData?.heading || 'Follow The Botanical World';
+  const matterText =
+    sectionData?.matterText ||
+    'Discover new designs, jewellery styling and latest pieces on Instagram. Join our patrons celebrating fine silver.';
+  const displayLogo = sectionData?.image || customLogoImage || brandLogoImg;
 
   return (
-    <section className="relative py-24 sm:py-32 px-6 sm:px-12 bg-[#080808] overflow-hidden border-t border-[#FFFFFF]/10">
-      <div className="max-w-4xl mx-auto flex flex-col items-center text-center">
-        
+    <section
+      style={{
+        backgroundColor: sectionData?.advanced?.backgroundColor || '#080808',
+        paddingTop: sectionData?.advanced?.paddingTop ? `${sectionData.advanced.paddingTop}px` : undefined,
+        paddingBottom: sectionData?.advanced?.paddingBottom ? `${sectionData.advanced.paddingBottom}px` : undefined,
+        minHeight: sectionData?.advanced?.minHeightVh ? `${sectionData.advanced.minHeightVh}vh` : undefined,
+      }}
+      className="relative py-24 sm:py-32 px-6 sm:px-12 bg-[#080808] overflow-hidden border-t border-[#FFFFFF]/10"
+    >
+      <div
+        className={`mx-auto flex flex-col items-center ${
+          sectionData?.advanced?.contentWidth === 'Boxed' ? 'max-w-3xl' : 'max-w-4xl'
+        }`}
+        style={{ textAlign: sectionData?.typography?.textAlign || 'center' }}
+      >
         {/* Top small label: SOCIAL PRESENCE */}
         <div className="inline-flex items-center gap-3 text-xs tracking-[0.3em] uppercase text-[#D8D8D5] mb-4">
           <span className="w-5 h-[1px] bg-[#0E5A4F]" />
-          <span className="text-[#A2DEC8]">Social Presence</span>
+          <span
+            style={{
+              color: sectionData?.typography?.subheadingColor || '#A2DEC8',
+              fontSize: sectionData?.typography?.subheadingSizePx
+                ? `${sectionData.typography.subheadingSizePx}px`
+                : undefined,
+            }}
+            className="text-[#A2DEC8]"
+          >
+            {badgeText}
+          </span>
           <span className="w-5 h-[1px] bg-[#0E5A4F]" />
         </div>
 
         {/* Big Heading: FOLLOW THE BOTANICAL WORLD */}
-        <h2 className="font-serif text-2xl sm:text-3xl md:text-[2.2rem] font-light tracking-[0.06em] text-[#F5F2EA] uppercase mb-4">
-          Follow The Botanical World
+        <h2
+          style={{
+            fontFamily: sectionData?.typography?.fontFamily || undefined,
+            color: sectionData?.typography?.headingColor || '#F5F2EA',
+            fontSize: sectionData?.typography?.headingSizePx
+              ? `${sectionData.typography.headingSizePx}px`
+              : undefined,
+            fontWeight: sectionData?.typography?.fontWeight || undefined,
+          }}
+          className="font-serif text-2xl sm:text-3xl md:text-[2.2rem] font-light tracking-[0.06em] text-[#F5F2EA] uppercase mb-4"
+        >
+          {headingText}
         </h2>
 
         {/* Description */}
-        <p className="font-sans text-xs sm:text-sm text-[#B8B8B5] font-light max-w-lg mx-auto leading-relaxed mb-10">
-          Discover new designs, jewellery styling and latest pieces on Instagram. Join our patrons celebrating fine silver.
+        <p
+          style={{
+            color: sectionData?.typography?.bodyColor || '#B8B8B5',
+            fontSize: sectionData?.typography?.bodySizePx ? `${sectionData.typography.bodySizePx}px` : undefined,
+          }}
+          className="font-sans text-xs sm:text-sm text-[#B8B8B5] font-light max-w-lg mx-auto leading-relaxed mb-10 whitespace-pre-line"
+        >
+          {matterText}
         </p>
 
         {/* Circular Logo Image with metallic ring & green status dot */}
         <div className="relative group mb-5">
           <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden border-2 border-[#FFFFFF]/25 group-hover:border-[#0E5A4F] transition-all duration-500 shadow-[0_0_35px_rgba(255,255,255,0.08)] group-hover:shadow-[0_0_40px_rgba(14,90,79,0.3)] p-0.5 bg-[#141414] flex items-center justify-center">
             <img
-              src={customLogoImage || brandLogoImg}
+              src={displayLogo}
               alt="Jewel Botanica Official"
               className="w-full h-full object-cover rounded-full transform group-hover:scale-105 transition-transform duration-500"
             />

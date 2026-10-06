@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowDown } from 'lucide-react';
-import { HeroSlideItem, DEFAULT_HERO_SLIDES } from '../lib/websiteSettingsService';
+import { HeroSlideItem, DEFAULT_HERO_SLIDES, PageSectionItem } from '../lib/websiteSettingsService';
 
 interface HeroProps {
   onExploreClick: () => void;
   introActive?: boolean; // Wait until opening screen completely finishes & slides up
   customSlides?: HeroSlideItem[];
+  sectionData?: PageSectionItem;
 }
 
 export const Hero: React.FC<HeroProps> = ({
   onExploreClick,
   introActive = false,
   customSlides,
+  sectionData,
 }) => {
   const slides = customSlides && customSlides.length > 0 ? customSlides : DEFAULT_HERO_SLIDES;
 
@@ -156,6 +158,12 @@ export const Hero: React.FC<HeroProps> = ({
         setIsDragging(false);
         setTouchDeltaX(0);
       }}
+      style={{
+        backgroundColor: sectionData?.advanced?.backgroundColor || '#000000',
+        minHeight: sectionData?.advanced?.minHeightVh ? `${sectionData.advanced.minHeightVh}vh` : undefined,
+        paddingTop: sectionData?.advanced?.paddingTop ? `${sectionData.advanced.paddingTop}px` : undefined,
+        paddingBottom: sectionData?.advanced?.paddingBottom ? `${sectionData.advanced.paddingBottom}px` : undefined,
+      }}
       className="relative min-h-[92vh] sm:min-h-screen flex flex-col justify-between pt-20 pb-8 px-4 sm:px-8 bg-black overflow-hidden select-none"
     >
       {/* Centerpiece: Pure shining jewellery slideshow in middle */}
@@ -205,6 +213,12 @@ export const Hero: React.FC<HeroProps> = ({
                       fetchPriority={idx === 0 ? 'high' : 'auto'}
                       decoding={idx === 0 ? 'sync' : 'async'}
                       referrerPolicy="no-referrer"
+                      style={{
+                        width: sectionData?.imageStyle?.widthPercent ? `${sectionData.imageStyle.widthPercent}%` : undefined,
+                        maxHeight: sectionData?.imageStyle?.heightPx ? `${sectionData.imageStyle.heightPx}px` : undefined,
+                        opacity: sectionData?.imageStyle?.opacity ? sectionData.imageStyle.opacity / 100 : undefined,
+                        borderRadius: sectionData?.imageStyle?.borderRadiusPx ? `${sectionData.imageStyle.borderRadiusPx}px` : undefined,
+                      }}
                       className="w-full h-full object-contain object-center transform transition-transform duration-700 scale-[1.02] filter drop-shadow-[0_15px_35px_rgba(0,0,0,0.95)] pointer-events-none"
                     />
                   )}
@@ -220,8 +234,11 @@ export const Hero: React.FC<HeroProps> = ({
         </div>
       </div>
 
-      {/* Minimal Dots and Scroll Indicator */}
-      <div className="relative z-20 w-full flex flex-col items-center justify-center space-y-4 pb-2">
+      {/* Minimal Dots, Optional Custom Hero Heading/Matter, and Scroll Indicator */}
+      <div
+        className="relative z-20 w-full flex flex-col items-center justify-center space-y-3 pb-2"
+        style={{ textAlign: sectionData?.typography?.textAlign || 'center' }}
+      >
         {/* Slide Indicator Dots */}
         {slides.length > 1 && (
           <div className="flex items-center space-x-2">
@@ -246,8 +263,16 @@ export const Hero: React.FC<HeroProps> = ({
           className="flex flex-col items-center gap-1 text-[#D8D8D5]/60 hover:text-[#F5F2EA] transition-colors group focus:outline-none cursor-pointer pt-1"
           aria-label="Discover the Collection"
         >
-          <span className="text-[9px] font-sans tracking-[0.4em] uppercase">
-            Discover The Collection
+          <span
+            style={{
+              color: sectionData?.typography?.subheadingColor || undefined,
+              fontSize: sectionData?.typography?.subheadingSizePx
+                ? `${sectionData.typography.subheadingSizePx}px`
+                : undefined,
+            }}
+            className="text-[9px] font-sans tracking-[0.4em] uppercase"
+          >
+            {sectionData?.buttons?.[0]?.text || 'Discover The Collection'}
           </span>
           <ArrowDown className="w-3.5 h-3.5 text-[#0E5A4F] group-hover:text-[#A2DEC8] group-hover:translate-y-1 transition-all" />
         </button>

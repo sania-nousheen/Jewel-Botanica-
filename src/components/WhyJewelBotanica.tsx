@@ -1,31 +1,90 @@
 import React from 'react';
 import { ShieldCheck, Gem, Sliders, Globe } from 'lucide-react';
 import { WHY_US_PILLARS } from '../data/jewelryData';
+import { PageSectionItem } from '../lib/websiteSettingsService';
 
-export const WhyJewelBotanica: React.FC = () => {
+interface WhyJewelBotanicaProps {
+  sectionData?: PageSectionItem;
+}
+
+export const WhyJewelBotanica: React.FC<WhyJewelBotanicaProps> = ({ sectionData }) => {
   // 01: 92.5 SILVER (ShieldCheck), 02: CURATED DESIGNS (Gem), 03: CUSTOMIZATION (Sliders), 04: WORLDWIDE SHIPPING (Globe)
   const iconList = [ShieldCheck, Gem, Sliders, Globe];
+  const badgeText = sectionData?.badgeText || 'The Atelier Standards';
+  const headingText = sectionData?.heading || 'WHY JEWEL BOTANICA';
+  const matterText =
+    sectionData?.matterText ||
+    'Founded on the belief that silver is the new gold, every design bridges royal Nizami craftsmanship with refined contemporary presence.';
 
   return (
-    <section className="relative py-24 sm:py-32 px-6 sm:px-12 bg-[#060606] border-t border-[#FFFFFF]/10 overflow-hidden">
+    <section
+      style={{
+        backgroundColor: sectionData?.advanced?.backgroundColor || '#060606',
+        paddingTop: sectionData?.advanced?.paddingTop ? `${sectionData.advanced.paddingTop}px` : undefined,
+        paddingBottom: sectionData?.advanced?.paddingBottom ? `${sectionData.advanced.paddingBottom}px` : undefined,
+        minHeight: sectionData?.advanced?.minHeightVh ? `${sectionData.advanced.minHeightVh}vh` : undefined,
+      }}
+      className="relative py-24 sm:py-32 px-6 sm:px-12 bg-[#060606] border-t border-[#FFFFFF]/10 overflow-hidden"
+    >
       {/* Subtle ambient lighting */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-[radial-gradient(circle,rgba(14,90,79,0.08)_0%,transparent_70%)] pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto relative z-10">
-        <div className="text-center max-w-2xl mx-auto mb-16 sm:mb-20">
+      <div
+        className={`mx-auto relative z-10 ${
+          sectionData?.advanced?.contentWidth === 'Boxed' ? 'max-w-5xl' : 'max-w-7xl'
+        }`}
+      >
+        <div
+          className="max-w-2xl mx-auto mb-16 sm:mb-20"
+          style={{ textAlign: sectionData?.typography?.textAlign || 'center' }}
+        >
           <div className="inline-flex items-center gap-3 text-xs tracking-[0.35em] uppercase text-[#D8D8D5] mb-3">
             <span className="w-5 h-[1px] bg-[#0E5A4F]" />
-            <span className="text-[#A2DEC8]">The Atelier Standards</span>
+            <span
+              style={{
+                color: sectionData?.typography?.subheadingColor || '#A2DEC8',
+                fontSize: sectionData?.typography?.subheadingSizePx
+                  ? `${sectionData.typography.subheadingSizePx}px`
+                  : undefined,
+              }}
+              className="text-[#A2DEC8]"
+            >
+              {badgeText}
+            </span>
             <span className="w-5 h-[1px] bg-[#0E5A4F]" />
           </div>
 
-          <h2 className="font-bodoni text-xl sm:text-2xl md:text-3xl font-light tracking-[0.2em] sm:tracking-[0.26em] text-[#F5F2EA] uppercase flex items-center justify-center gap-2.5 flex-wrap">
-            <span className="opacity-70">WHY</span>
-            <span className="font-normal text-[#FFFFFF] tracking-[0.24em] sm:tracking-[0.3em]">JEWEL BOTANICA</span>
+          <h2
+            style={{
+              fontFamily: sectionData?.typography?.fontFamily || undefined,
+              color: sectionData?.typography?.headingColor || '#F5F2EA',
+              fontSize: sectionData?.typography?.headingSizePx
+                ? `${sectionData.typography.headingSizePx}px`
+                : undefined,
+              fontWeight: sectionData?.typography?.fontWeight || undefined,
+            }}
+            className="font-bodoni text-xl sm:text-2xl md:text-3xl font-light tracking-[0.2em] sm:tracking-[0.26em] text-[#F5F2EA] uppercase flex items-center justify-center gap-2.5 flex-wrap"
+          >
+            {headingText === 'WHY JEWEL BOTANICA' ? (
+              <>
+                <span className="opacity-70">WHY</span>
+                <span className="font-normal text-[#FFFFFF] tracking-[0.24em] sm:tracking-[0.3em]">
+                  JEWEL BOTANICA
+                </span>
+              </>
+            ) : (
+              <span>{headingText}</span>
+            )}
           </h2>
 
-          <p className="mt-4 font-sans text-xs sm:text-sm text-[#B8B8B5] leading-relaxed font-light">
-            Founded on the belief that silver is the new gold, every design bridges royal Nizami craftsmanship with refined contemporary presence.
+          <p
+            style={{
+              color: sectionData?.typography?.bodyColor || '#B8B8B5',
+              fontSize: sectionData?.typography?.bodySizePx ? `${sectionData.typography.bodySizePx}px` : undefined,
+            }}
+            className="mt-4 font-sans text-xs sm:text-sm text-[#B8B8B5] leading-relaxed font-light whitespace-pre-line"
+          >
+            {matterText}
           </p>
         </div>
 

@@ -2,13 +2,22 @@ import React, { useState } from 'react';
 import { MessageCircle, ArrowRight } from 'lucide-react';
 import { BRAND_INFO } from '../data/jewelryData';
 import { submitInquiry } from '../lib/inquiryService';
+import { PageSectionItem } from '../lib/websiteSettingsService';
 
-export const Customization: React.FC = () => {
+interface CustomizationProps {
+  sectionData?: PageSectionItem;
+}
+
+export const Customization: React.FC<CustomizationProps> = ({ sectionData }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [jewelleryType, setJewelleryType] = useState('');
   const [inquiry, setInquiry] = useState('');
+
+  const headingText = sectionData?.heading || 'Bespoke Design Inquiry';
+  const matterText =
+    sectionData?.matterText || 'Select your preferences below to initiate a personal WhatsApp consultation.';
 
   // Track if user attempted submission to show validation warnings
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
@@ -59,22 +68,66 @@ export const Customization: React.FC = () => {
   return (
     <section
       id="customization"
+      style={{
+        backgroundColor: sectionData?.advanced?.backgroundColor || '#080808',
+        paddingTop: sectionData?.advanced?.paddingTop ? `${sectionData.advanced.paddingTop}px` : undefined,
+        paddingBottom: sectionData?.advanced?.paddingBottom ? `${sectionData.advanced.paddingBottom}px` : undefined,
+        minHeight: sectionData?.advanced?.minHeightVh ? `${sectionData.advanced.minHeightVh}vh` : undefined,
+      }}
       className="relative py-24 sm:py-32 px-6 sm:px-12 bg-[#080808] overflow-hidden"
     >
       {/* Background Soft Glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-[radial-gradient(circle,rgba(14,90,79,0.12)_0%,transparent_70%)] pointer-events-none" />
 
-      <div className="max-w-4xl mx-auto">
+      <div
+        className={`mx-auto ${
+          sectionData?.advanced?.contentWidth === 'Boxed' ? 'max-w-3xl' : 'max-w-4xl'
+        }`}
+      >
         {/* Centered Bespoke Design Inquiry Box */}
         <div className="bg-[#111111] border border-[#FFFFFF]/15 p-6 sm:p-10 rounded-sm shadow-[0_20px_50px_rgba(0,0,0,0.8)] relative">
-          {/* Header - Kept exactly identical */}
-          <div className="flex items-center justify-between pb-6 border-b border-[#FFFFFF]/10 mb-8">
-            <div>
-              <h3 className="font-serif text-2xl tracking-[0.08em] text-[#F5F2EA] uppercase">
-                Bespoke Design Inquiry
+          {/* Header */}
+          <div
+            className="flex items-center justify-between pb-6 border-b border-[#FFFFFF]/10 mb-8"
+            style={{ textAlign: sectionData?.typography?.textAlign || 'left' }}
+          >
+            <div className="w-full">
+              {sectionData?.badgeText && (
+                <span
+                  style={{
+                    color: sectionData?.typography?.subheadingColor || '#A2DEC8',
+                    fontSize: sectionData?.typography?.subheadingSizePx
+                      ? `${sectionData.typography.subheadingSizePx}px`
+                      : undefined,
+                  }}
+                  className="text-[10px] font-sans tracking-[0.25em] uppercase text-[#A2DEC8] block mb-1.5"
+                >
+                  {sectionData.badgeText}
+                </span>
+              )}
+              <h3
+                style={{
+                  fontFamily: sectionData?.typography?.fontFamily || undefined,
+                  color: sectionData?.typography?.headingColor || '#F5F2EA',
+                  fontSize: sectionData?.typography?.headingSizePx
+                    ? `${sectionData.typography.headingSizePx}px`
+                    : undefined,
+                  fontWeight: sectionData?.typography?.fontWeight || undefined,
+                }}
+                className="font-serif text-2xl tracking-[0.08em] text-[#F5F2EA] uppercase"
+              >
+                {headingText}
               </h3>
-              <p className="text-xs text-[#B8B8B5]/80 mt-1">
-                Select your preferences below to initiate a personal WhatsApp consultation.
+              <p
+                style={{
+                  color: sectionData?.typography?.bodyColor || '#B8B8B5',
+                  fontSize: sectionData?.typography?.bodySizePx
+                    ? `${sectionData.typography.bodySizePx}px`
+                    : undefined,
+                }}
+                className="text-xs text-[#B8B8B5]/80 mt-1 whitespace-pre-line"
+              >
+                {matterText}
               </p>
             </div>
           </div>

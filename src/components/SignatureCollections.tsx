@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
-import { ArrowUpRight, ArrowLeft, MessageCircle, Eye, Sparkles } from 'lucide-react';
+import { ArrowUpRight, ArrowLeft, MessageCircle, Eye, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { SIGNATURE_COLLECTIONS, CATALOGUE_ITEMS, BRAND_INFO } from '../data/jewelryData';
 import { JewelryCategory, CollectionCard, JewelryItem } from '../types/jewelry';
+import { PageSectionItem } from '../lib/websiteSettingsService';
 
 interface SignatureCollectionsProps {
   onSelectCategory: (category: JewelryCategory) => void;
   onViewProduct?: (item: JewelryItem) => void;
   customCollections?: CollectionCard[];
   allProducts?: JewelryItem[];
+  sectionData?: PageSectionItem;
 }
 
 export const SignatureCollections: React.FC<SignatureCollectionsProps> = ({
@@ -15,10 +17,13 @@ export const SignatureCollections: React.FC<SignatureCollectionsProps> = ({
   onViewProduct,
   customCollections,
   allProducts,
+  sectionData,
 }) => {
   const [selectedFolderCollection, setSelectedFolderCollection] = useState<CollectionCard | null>(null);
+  const [showAllCollections, setShowAllCollections] = useState(false);
 
   const collections = customCollections && customCollections.length > 0 ? customCollections : SIGNATURE_COLLECTIONS;
+  const displayedCollections = showAllCollections ? collections : collections.slice(0, 3);
   const products = allProducts && allProducts.length > 0 ? allProducts : CATALOGUE_ITEMS;
 
   // Filter products for the currently opened collection folder
@@ -46,15 +51,29 @@ export const SignatureCollections: React.FC<SignatureCollectionsProps> = ({
     }
   };
 
+  const headingText = sectionData?.heading || 'The Collections';
+  const matterText =
+    sectionData?.matterText || 'Click any collection to open its folder and explore curated jewellery designs';
+
   return (
     <section
       id="collections"
+      style={{
+        backgroundColor: sectionData?.advanced?.backgroundColor || '#080808',
+        paddingTop: sectionData?.advanced?.paddingTop ? `${sectionData.advanced.paddingTop}px` : undefined,
+        paddingBottom: sectionData?.advanced?.paddingBottom ? `${sectionData.advanced.paddingBottom}px` : undefined,
+        minHeight: sectionData?.advanced?.minHeightVh ? `${sectionData.advanced.minHeightVh}vh` : undefined,
+      }}
       className="relative py-20 sm:py-28 px-6 sm:px-12 bg-[#080808] overflow-hidden"
     >
       {/* Background Soft Glow */}
       <div className="absolute top-1/3 right-0 w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(14,90,79,0.1)_0%,transparent_70%)] pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto">
+      <div
+        className={`mx-auto ${
+          sectionData?.advanced?.contentWidth === 'Boxed' ? 'max-w-5xl' : 'max-w-7xl'
+        }`}
+      >
         {/* If a Collection Folder is open, display the Collection Folder view */}
         {selectedFolderCollection ? (
           <div className="space-y-10 animate-fadeIn">
@@ -235,18 +254,52 @@ export const SignatureCollections: React.FC<SignatureCollectionsProps> = ({
           /* Default: All 9 Collections Grid - Perfectly uniform, equal-size, headings strictly under image */
           <>
             {/* Section Header */}
-            <div className="text-center mb-14 pb-6 border-b border-[#FFFFFF]/10">
-              <h2 className="font-serif text-2xl sm:text-3xl md:text-[2.2rem] font-light tracking-[0.08em] text-[#F5F2EA] uppercase">
-                The Collections
+            <div
+              className="mb-14 pb-6 border-b border-[#FFFFFF]/10"
+              style={{ textAlign: sectionData?.typography?.textAlign || 'center' }}
+            >
+              {sectionData?.badgeText && (
+                <span
+                  style={{
+                    color: sectionData?.typography?.subheadingColor || '#A2DEC8',
+                    fontSize: sectionData?.typography?.subheadingSizePx
+                      ? `${sectionData.typography.subheadingSizePx}px`
+                      : undefined,
+                  }}
+                  className="text-[10px] font-sans tracking-[0.25em] uppercase text-[#A2DEC8] block mb-2"
+                >
+                  {sectionData.badgeText}
+                </span>
+              )}
+              <h2
+                style={{
+                  fontFamily: sectionData?.typography?.fontFamily || undefined,
+                  color: sectionData?.typography?.headingColor || '#F5F2EA',
+                  fontSize: sectionData?.typography?.headingSizePx
+                    ? `${sectionData.typography.headingSizePx}px`
+                    : undefined,
+                  fontWeight: sectionData?.typography?.fontWeight || undefined,
+                }}
+                className="font-serif text-2xl sm:text-3xl md:text-[2.2rem] font-light tracking-[0.08em] text-[#F5F2EA] uppercase"
+              >
+                {headingText}
               </h2>
-              <p className="text-xs sm:text-sm text-[#B8B8B5] font-light tracking-wide mt-2">
-                Click any collection to open its folder and explore curated jewellery designs
+              <p
+                style={{
+                  color: sectionData?.typography?.bodyColor || '#B8B8B5',
+                  fontSize: sectionData?.typography?.bodySizePx
+                    ? `${sectionData.typography.bodySizePx}px`
+                    : undefined,
+                }}
+                className="text-xs sm:text-sm text-[#B8B8B5] font-light tracking-wide mt-2 whitespace-pre-line"
+              >
+                {matterText}
               </p>
             </div>
 
-            {/* Editorial Collections Grid: 9 uniform equal-size cards in clean alignment */}
+            {/* Editorial Collections Grid: 3 uniform equal-size cards initially, expandable to all */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 items-stretch">
-              {collections.map((col) => (
+              {displayedCollections.map((col) => (
                 <div
                   key={col.id}
                   onClick={() => handleOpenFolder(col)}
@@ -299,6 +352,26 @@ export const SignatureCollections: React.FC<SignatureCollectionsProps> = ({
                 </div>
               ))}
             </div>
+
+            {/* Show All Collections Toggle Button with Arrow */}
+            {collections.length > 3 && (
+              <div className="mt-14 text-center">
+                <button
+                  type="button"
+                  onClick={() => setShowAllCollections(!showAllCollections)}
+                  className="inline-flex items-center gap-2.5 px-8 py-3.5 border border-[#FFFFFF]/15 hover:border-[#0E5A4F] text-xs font-sans tracking-[0.22em] uppercase text-[#F5F2EA] bg-[#0E0E0E] hover:bg-[#121212] transition-all duration-300 group shadow-md cursor-pointer"
+                >
+                  <span>
+                    {showAllCollections ? 'Show Less Collections' : `Show All Collections (${collections.length})`}
+                  </span>
+                  {showAllCollections ? (
+                    <ChevronUp className="w-4 h-4 text-[#A2DEC8] group-hover:-translate-y-0.5 transition-transform" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-[#A2DEC8] group-hover:translate-y-0.5 transition-transform" />
+                  )}
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

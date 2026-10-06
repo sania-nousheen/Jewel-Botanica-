@@ -3,7 +3,8 @@ import { db } from './firebase';
 
 const SETTINGS_DOC_REF = doc(db, 'settings', 'community');
 const CACHE_KEY = 'jb_instagram_community_count';
-const DEFAULT_COUNT = 104260; // 104K reached milestone
+const FOLLOWER_CHANGE_EVENT = 'jb_follower_count_changed';
+const DEFAULT_COUNT = 104280; // 104K reached milestone
 
 export interface CommunitySettings {
   instagramFollowersCount: number;
@@ -11,7 +12,7 @@ export interface CommunitySettings {
 }
 
 /**
- * Clean numeric string formatter (e.g. 104,260)
+ * Clean numeric string formatter (e.g. 104,280)
  */
 export function formatFollowerCount(count: number): string {
   return count.toLocaleString('en-US');
@@ -21,22 +22,32 @@ export function formatFollowerCount(count: number): string {
  * Realtime listener for Instagram follower count with instantaneous local fallback
  */
 export function subscribeFollowerCount(callback: (count: number) => void): () => void {
-  // 1. Immediately emit cached or default count so UI has zero delay
-  const cached = localStorage.getItem(CACHE_KEY);
-  if (cached) {
-    const parsed = parseInt(cached, 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      callback(parsed);
-    } else {
-      callback(DEFAULT_COUNT);
+  const emitFromCacheOrDefault = () => {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const parsed = parseInt(cached, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        callback(parsed);
+        return;
+      }
     }
-  } else {
     callback(DEFAULT_COUNT);
-  }
+  };
 
-  // 2. Fetch live updates from Firestore `settings/community`
+  // 1. Immediately emit cached or default count so UI has zero delay
+  emitFromCacheOrDefault();
+
+  // 2. Listen for immediate local updates from Admin CMS
+  const handleLocalUpdate = () => {
+    emitFromCacheOrDefault();
+  };
+  window.addEventListener(FOLLOWER_CHANGE_EVENT, handleLocalUpdate);
+  window.addEventListener('storage', handleLocalUpdate);
+
+  // 3. Fetch live updates from Firestore `settings/community`
+  let unsubFirestore: (() => void) | null = null;
   try {
-    const unsubscribe = onSnapshot(
+    unsubFirestore = onSnapshot(
       SETTINGS_DOC_REF,
       (docSnap) => {
         if (docSnap.exists()) {
@@ -51,11 +62,15 @@ export function subscribeFollowerCount(callback: (count: number) => void): () =>
         console.warn('Community count Firestore subscription error:', error);
       }
     );
-    return unsubscribe;
   } catch (err) {
     console.warn('Failed to attach Firestore snapshot:', err);
-    return () => {};
   }
+
+  return () => {
+    window.removeEventListener(FOLLOWER_CHANGE_EVENT, handleLocalUpdate);
+    window.removeEventListener('storage', handleLocalUpdate);
+    if (unsubFirestore) unsubFirestore();
+  };
 }
 
 /**
@@ -63,12 +78,17 @@ export function subscribeFollowerCount(callback: (count: number) => void): () =>
  */
 export async function updateFollowerCount(newCount: number): Promise<void> {
   localStorage.setItem(CACHE_KEY, newCount.toString());
-  await setDoc(
-    SETTINGS_DOC_REF,
-    {
-      instagramFollowersCount: newCount,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+  window.dispatchEvent(new Event(FOLLOWER_CHANGE_EVENT));
+  try {
+    await setDoc(
+      SETTINGS_DOC_REF,
+      {
+        instagramFollowersCount: newCount,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('Updated follower count locally:', err);
+  }
 }

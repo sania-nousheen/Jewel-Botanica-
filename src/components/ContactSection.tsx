@@ -2,13 +2,21 @@ import React, { useState } from 'react';
 import { MessageCircle, Instagram, MapPin, ArrowRight, Clock, Send } from 'lucide-react';
 import { BRAND_INFO } from '../data/jewelryData';
 import { submitInquiry } from '../lib/inquiryService';
+import { PageSectionItem } from '../lib/websiteSettingsService';
 
-export const ContactSection: React.FC = () => {
+interface ContactSectionProps {
+  sectionData?: PageSectionItem;
+}
+
+export const ContactSection: React.FC<ContactSectionProps> = ({ sectionData }) => {
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userPhone, setUserPhone] = useState('');
   const [userLocation, setUserLocation] = useState('');
   const [userQuery, setUserQuery] = useState('');
+
+  const badgeText = sectionData?.badgeText || 'Atelier Channels';
+  const headingText = sectionData?.heading || 'JEWEL BOTANICA';
 
   const handleCustomSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,24 +42,51 @@ export const ContactSection: React.FC = () => {
   return (
     <section
       id="contact"
+      style={{
+        backgroundColor: sectionData?.advanced?.backgroundColor || '#060606',
+        paddingTop: sectionData?.advanced?.paddingTop ? `${sectionData.advanced.paddingTop}px` : undefined,
+        paddingBottom: sectionData?.advanced?.paddingBottom ? `${sectionData.advanced.paddingBottom}px` : undefined,
+        minHeight: sectionData?.advanced?.minHeightVh ? `${sectionData.advanced.minHeightVh}vh` : undefined,
+      }}
       className="relative py-24 sm:py-36 px-6 sm:px-12 bg-[#060606] overflow-hidden"
     >
       {/* Background Soft Glow */}
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-[radial-gradient(circle,rgba(14,90,79,0.15)_0%,transparent_75%)] pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto relative z-10">
+      <div
+        className={`mx-auto relative z-10 ${
+          sectionData?.advanced?.contentWidth === 'Boxed' ? 'max-w-5xl' : 'max-w-7xl'
+        }`}
+      >
         {/* 2-Column Contact Suite */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-stretch max-w-5xl mx-auto">
-          
           {/* Left Column: Direct Atelier Coordinates */}
           <div className="lg:col-span-5 bg-[#0D0D0D] border border-[#FFFFFF]/15 p-8 rounded-sm flex flex-col justify-between shadow-2xl">
-            <div>
-              <span className="text-[10px] font-sans tracking-[0.3em] uppercase text-[#A2DEC8] block mb-2">
-                Atelier Channels
+            <div style={{ textAlign: sectionData?.typography?.textAlign || 'left' }}>
+              <span
+                style={{
+                  color: sectionData?.typography?.subheadingColor || '#A2DEC8',
+                  fontSize: sectionData?.typography?.subheadingSizePx
+                    ? `${sectionData.typography.subheadingSizePx}px`
+                    : undefined,
+                }}
+                className="text-[10px] font-sans tracking-[0.3em] uppercase text-[#A2DEC8] block mb-2"
+              >
+                {badgeText}
               </span>
 
-              <h3 className="font-bodoni font-normal text-sm sm:text-base md:text-lg text-[#FFFFFF] tracking-[0.2em] sm:tracking-[0.24em] uppercase mb-8 block leading-tight whitespace-nowrap">
-                JEWEL BOTANICA
+              <h3
+                style={{
+                  fontFamily: sectionData?.typography?.fontFamily || undefined,
+                  color: sectionData?.typography?.headingColor || '#FFFFFF',
+                  fontSize: sectionData?.typography?.headingSizePx
+                    ? `${sectionData.typography.headingSizePx}px`
+                    : undefined,
+                  fontWeight: sectionData?.typography?.fontWeight || undefined,
+                }}
+                className="font-bodoni font-normal text-sm sm:text-base md:text-lg text-[#FFFFFF] tracking-[0.2em] sm:tracking-[0.24em] uppercase mb-8 block leading-tight"
+              >
+                {headingText}
               </h3>
 
               <div className="space-y-6">

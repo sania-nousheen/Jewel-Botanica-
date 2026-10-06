@@ -1,14 +1,61 @@
 import React from 'react';
-import { ArrowUp, Instagram, MessageCircle, MapPin, Lock } from 'lucide-react';
-import { BRAND_INFO, brandLogoImg } from '../data/jewelryData';
+import {
+  ArrowUp,
+  Instagram,
+  MessageCircle,
+  MapPin,
+  Lock,
+  Youtube,
+  Linkedin,
+  Facebook,
+  Mail,
+  Phone,
+  Globe,
+  Send,
+  Share2,
+} from 'lucide-react';
+import { BRAND_INFO } from '../data/jewelryData';
 import { useAuth } from '../context/AuthContext';
+import { SocialIconItem, ProfileSettings, DEFAULT_SOCIAL_ICONS } from '../lib/websiteSettingsService';
 
 interface FooterProps {
   onOpenAdmin?: () => void;
+  socialIcons?: SocialIconItem[];
+  profile?: ProfileSettings;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
-  const { currentUser, isAdmin } = useAuth();
+export const Footer: React.FC<FooterProps> = ({ onOpenAdmin, socialIcons, profile }) => {
+  const { isAdmin } = useAuth();
+  const activeSocials = (socialIcons && socialIcons.length > 0 ? socialIcons : DEFAULT_SOCIAL_ICONS).filter(
+    (s) => s.visible
+  );
+
+  const renderSocialPlatformIcon = (platform: string) => {
+    switch (platform) {
+      case 'Instagram':
+        return <Instagram className="w-4 h-4" />;
+      case 'WhatsApp':
+        return <MessageCircle className="w-4 h-4" />;
+      case 'YouTube':
+        return <Youtube className="w-4 h-4" />;
+      case 'LinkedIn':
+        return <Linkedin className="w-4 h-4" />;
+      case 'Facebook':
+        return <Facebook className="w-4 h-4" />;
+      case 'Telegram':
+        return <Send className="w-4 h-4" />;
+      case 'Envelope':
+        return <Mail className="w-4 h-4" />;
+      case 'Phone':
+        return <Phone className="w-4 h-4" />;
+      case 'MapPin':
+        return <MapPin className="w-4 h-4" />;
+      case 'Globe':
+        return <Globe className="w-4 h-4" />;
+      default:
+        return <Share2 className="w-4 h-4" />;
+    }
+  };
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -34,14 +81,14 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
           {/* Brand Column */}
           <div className="md:col-span-5 flex flex-col items-start">
             <span className="font-bodoni font-normal text-base sm:text-lg md:text-xl text-[#FFFFFF] tracking-[0.24em] uppercase block leading-tight whitespace-nowrap">
-              JEWEL BOTANICA
+              {profile?.brandName || 'JEWEL BOTANICA'}
             </span>
             <span className="text-[9px] sm:text-[10px] tracking-[0.35em] text-[#A2DEC8] uppercase font-sans mt-2.5 mb-5 block">
-              Silver Jewellery
+              {profile?.descriptor || 'Silver Jewellery'}
             </span>
 
             <p className="font-serif italic text-base text-[#F5F2EA] mb-6">
-              &ldquo;{BRAND_INFO.motto}&rdquo;
+              &ldquo;{profile?.tagline || BRAND_INFO.motto}&rdquo;
             </p>
 
             <p className="font-sans text-xs text-[#B8B8B5]/70 leading-relaxed max-w-sm font-light mb-6">
@@ -50,8 +97,32 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
 
             <div className="flex items-center gap-2 text-xs text-[#B8B8B5]">
               <MapPin className="w-3.5 h-3.5 text-[#0E5A4F]" />
-              <span>Hyderabad, Telangana, India • Worldwide Shipping</span>
+              <span>{profile?.atelierAddress || 'Hyderabad, Telangana, India • Worldwide Shipping'}</span>
             </div>
+
+            {/* Dynamic Social Icons Bar */}
+            {activeSocials.length > 0 && (
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                {activeSocials.map((soc) => (
+                  <a
+                    key={soc.id}
+                    href={soc.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={soc.label || soc.platform}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-300 border ${
+                      soc.colorType === 'Emerald Luxury'
+                        ? 'bg-[#0E5A4F]/20 border-[#0E5A4F] text-[#A2DEC8] hover:bg-[#0E5A4F] hover:text-white'
+                        : soc.colorType === 'Silver Monochrome'
+                        ? 'bg-[#141414] border-white/15 text-[#F5F2EA] hover:border-white'
+                        : 'bg-[#111111] border-white/15 text-[#A2DEC8] hover:border-[#0E5A4F] hover:bg-[#0E5A4F] hover:text-white'
+                    }`}
+                  >
+                    {renderSocialPlatformIcon(soc.platform)}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Quick Navigation Links */}

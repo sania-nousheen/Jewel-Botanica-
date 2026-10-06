@@ -40,7 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCustomization, logoImage }
   return (
     <>
       <header
-        className={`fixed top-0 left-0 right-0 z-40 transition-all duration-500 ${
+        className={`relative z-40 transition-all duration-500 ${
           scrolled
             ? 'bg-[#080808]/95 backdrop-blur-xl border-b border-[#FFFFFF]/10 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.8)]'
             : 'bg-gradient-to-b from-[#080808]/90 via-[#080808]/50 to-transparent py-5 sm:py-7'

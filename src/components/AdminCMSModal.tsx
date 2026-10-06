@@ -37,8 +37,22 @@ import {
   ArrowDown,
   MoveVertical,
   Check,
+  Monitor,
+  Tablet,
+  Smartphone,
+  Type,
+  Layers,
+  Share2,
+  MousePointerClick,
+  LayoutGrid,
+  ChevronDown,
+  ChevronUp,
+  EyeOff,
+  GripVertical,
+  Save,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { updateFollowerCount, subscribeFollowerCount } from '../lib/communityService';
 import {
   createProduct,
   updateProduct,
@@ -62,11 +76,22 @@ import {
   HeroSlideItem,
   PromoPopupSettings,
   ProfileSettings,
+  PageSectionItem,
+  SocialIconItem,
+  SocialPlatformType,
+  CustomWidgetItem,
+  WidgetType,
+  SectionButtonConfig,
   DEFAULT_HERO_SLIDES,
   DEFAULT_PROMO_POPUP,
   DEFAULT_PROFILE,
   DEFAULT_WEBSITE_IMAGES,
   DEFAULT_WEBSITE_SETTINGS,
+  DEFAULT_PAGE_SECTIONS,
+  DEFAULT_SOCIAL_ICONS,
+  DEFAULT_TYPOGRAPHY_STYLE,
+  DEFAULT_IMAGE_STYLE,
+  DEFAULT_CONTAINER_ADVANCED,
 } from '../lib/websiteSettingsService';
 import { JewelryItem, JewelryCategory, CollectionCard } from '../types/jewelry';
 import { BOOTSTRAPPED_ADMIN_EMAIL } from '../lib/firebase';
@@ -81,14 +106,21 @@ interface AdminCMSModalProps {
 
 export type AdminTab =
   | 'OVERALL'
-  | 'HERO_CUSTOMIZE'
-  | 'WEBSITE_MEDIA'
+  | 'CUSTOMIZE_WEBSITE'
   | 'DISCOUNTS_POPUP'
   | 'COLLECTIONS'
   | 'CATALOGUE'
   | 'INQUIRIES'
   | 'INSTAGRAM'
   | 'PROFILE';
+
+export type CustomizeSubCategory =
+  | 'HOME_HERO_MEDIA'
+  | 'PAGE_SECTIONS_EDITOR'
+  | 'WEBSITE_IMAGES'
+  | 'SOCIAL_ICONS_BUTTONS'
+  | 'WIDGETS_RESPONSIVE'
+  | 'PAGES_ORDER';
 
 const DEFAULT_CATEGORIES: string[] = [
   'HAARAMS',
@@ -151,11 +183,78 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     isAdmin,
     loading,
     loginWithGoogleAdmin,
+    loginWithDirectAdminEmail,
     logout,
   } = useAuth();
 
-  // Navigation: active left panel tab
+  // Navigation: active left panel tab + Customize Website sub-category
   const [activeTab, setActiveTab] = useState<AdminTab>('OVERALL');
+  const [customizeSubTab, setCustomizeSubTab] = useState<CustomizeSubCategory>('HOME_HERO_MEDIA');
+  const [isCustomizeMenuOpen, setIsCustomizeMenuOpen] = useState<boolean>(true);
+  const [responsivePreviewMode, setResponsivePreviewMode] = useState<'DESKTOP' | 'TABLET' | 'MOBILE'>('DESKTOP');
+  const [showLivePreviewSplit, setShowLivePreviewSplit] = useState<boolean>(true);
+  const [hasUnsavedCustomizeChanges, setHasUnsavedCustomizeChanges] = useState<boolean>(false);
+  const [isPublishingAllCustomize, setIsPublishingAllCustomize] = useState<boolean>(false);
+  const [previewActiveCategory, setPreviewActiveCategory] = useState<JewelryCategory>('ALL');
+
+  // Aliases for Elementor live preview & draft state
+  const hasUnsavedChanges = hasUnsavedCustomizeChanges;
+  const setHasUnsavedChanges = setHasUnsavedCustomizeChanges;
+  const publishingAll = isPublishingAllCustomize;
+
+  // Drag and Drop State for Sections, Slides, and Widgets
+  const [draggedSectionIndex, setDraggedSectionIndex] = useState<number | null>(null);
+  const [dragOverSectionIndex, setDragOverSectionIndex] = useState<number | null>(null);
+  const [draggedHeroIndex, setDraggedHeroIndex] = useState<number | null>(null);
+  const [draggedWidgetIndex, setDraggedWidgetIndex] = useState<number | null>(null);
+  const [draggedWidgetType, setDraggedWidgetType] = useState<WidgetType | null>(null);
+  const [dragOverWidgetTargetId, setDragOverWidgetTargetId] = useState<string | null>(null);
+
+  // Direct Admin Email Login State (Works on GitHub Pages, external hosting, and everywhere)
+  const [directLoginEmail, setDirectLoginEmail] = useState<string>(BOOTSTRAPPED_ADMIN_EMAIL);
+
+  // Page Sections, Typography, Sizing, Social Icons & Widgets State
+  const [pageSections, setPageSections] = useState<PageSectionItem[]>(
+    websiteSettings.pageSections && websiteSettings.pageSections.length > 0
+      ? websiteSettings.pageSections
+      : DEFAULT_PAGE_SECTIONS
+  );
+  const [selectedSectionId, setSelectedSectionId] = useState<string>('hero');
+  const [elementorSubPanel, setElementorSubPanel] = useState<'CONTENT' | 'STYLE' | 'ADVANCED'>('CONTENT');
+  const [savingPageSections, setSavingPageSections] = useState(false);
+
+  // New Custom Page Form State
+  const [newPageTitle, setNewPageTitle] = useState('');
+  const [newPageHeading, setNewPageHeading] = useState('');
+  const [newPageSubheading, setNewPageSubheading] = useState('');
+  const [newPageMatter, setNewPageMatter] = useState('');
+  const [newPageImage, setNewPageImage] = useState('');
+
+  // Social Icons State
+  const [socialIcons, setSocialIcons] = useState<SocialIconItem[]>(
+    websiteSettings.socialIcons && websiteSettings.socialIcons.length > 0
+      ? websiteSettings.socialIcons
+      : DEFAULT_SOCIAL_ICONS
+  );
+  const [savingSocialIcons, setSavingSocialIcons] = useState(false);
+  const [newSocialPlatform, setNewSocialPlatform] = useState<SocialPlatformType>('Instagram');
+  const [newSocialLabel, setNewSocialLabel] = useState('');
+  const [newSocialLink, setNewSocialLink] = useState('');
+  const [newSocialColorType, setNewSocialColorType] = useState<
+    'Official Color' | 'Custom Color' | 'Emerald Luxury' | 'Silver Monochrome'
+  >('Official Color');
+
+  // Custom Widgets State
+  const [customWidgets, setCustomWidgets] = useState<CustomWidgetItem[]>(websiteSettings.customWidgets || []);
+  const [savingWidgets, setSavingWidgets] = useState(false);
+  const [newWidgetType, setNewWidgetType] = useState<WidgetType>('Heading');
+  const [newWidgetTargetSection, setNewWidgetTargetSection] = useState<string>('hero');
+  const [newWidgetTitle, setNewWidgetTitle] = useState('');
+  const [newWidgetSubtitle, setNewWidgetSubtitle] = useState('');
+  const [newWidgetContent, setNewWidgetContent] = useState('');
+  const [newWidgetImage, setNewWidgetImage] = useState('');
+  const [newWidgetButtonText, setNewWidgetButtonText] = useState('');
+  const [newWidgetButtonLink, setNewWidgetButtonLink] = useState('');
 
   // Products State
   const [productsList, setProductsList] = useState<JewelryItem[]>(() => {
@@ -241,6 +340,15 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
       if (websiteSettings.collections) setCollections(websiteSettings.collections);
       if (websiteSettings.profile) setProfile(websiteSettings.profile);
       if (websiteSettings.websiteImages) setWebsiteImages(websiteSettings.websiteImages);
+      if (websiteSettings.pageSections && websiteSettings.pageSections.length > 0) {
+        setPageSections(websiteSettings.pageSections);
+      }
+      if (websiteSettings.socialIcons && websiteSettings.socialIcons.length > 0) {
+        setSocialIcons(websiteSettings.socialIcons);
+      }
+      if (Array.isArray(websiteSettings.customWidgets)) {
+        setCustomWidgets(websiteSettings.customWidgets);
+      }
       if (typeof websiteSettings.instagramFollowersCount === 'number') {
         setInstagramFollowers(websiteSettings.instagramFollowersCount);
       }
@@ -292,6 +400,20 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     }, 4500);
   };
 
+  const handleDirectEmailAdminLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError(null);
+    setAuthSubmitting(true);
+    try {
+      await loginWithDirectAdminEmail(directLoginEmail);
+      showStatus('Signed in with Universal Admin Email Access!');
+    } catch (err: any) {
+      setAuthError(err.message || 'Invalid admin email.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
   const handleGoogleAdminLogin = async () => {
     setAuthError(null);
     setAuthSubmitting(true);
@@ -303,6 +425,267 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     } finally {
       setAuthSubmitting(false);
     }
+  };
+
+  // Customize Website: Page Sections, Social Icons, Widgets & Unified Publish handlers
+  // IMPORTANT: Edits update the live right-side website preview immediately, and ONLY save to the live site when Publish / Save is clicked!
+  const handlePublishAllCustomizations = async () => {
+    setIsPublishingAllCustomize(true);
+    try {
+      await saveWebsiteSettings({
+        heroSlides,
+        pageSections,
+        websiteImages,
+        socialIcons,
+        customWidgets,
+      });
+      setHasUnsavedCustomizeChanges(false);
+      showStatus('All website customizations published live across the website!');
+    } catch {
+      setHasUnsavedCustomizeChanges(false);
+      showStatus('Customizations saved locally.', 'error');
+    } finally {
+      setIsPublishingAllCustomize(false);
+    }
+  };
+
+  const handleDiscardCustomizeDraft = () => {
+    if (websiteSettings) {
+      setHeroSlides(websiteSettings.heroSlides || DEFAULT_HERO_SLIDES);
+      setPageSections(
+        websiteSettings.pageSections && websiteSettings.pageSections.length > 0
+          ? websiteSettings.pageSections
+          : DEFAULT_PAGE_SECTIONS
+      );
+      setWebsiteImages(websiteSettings.websiteImages || DEFAULT_WEBSITE_IMAGES);
+      setSocialIcons(
+        websiteSettings.socialIcons && websiteSettings.socialIcons.length > 0
+          ? websiteSettings.socialIcons
+          : DEFAULT_SOCIAL_ICONS
+      );
+      setCustomWidgets(websiteSettings.customWidgets || []);
+    }
+    setHasUnsavedCustomizeChanges(false);
+    showStatus('Reverted unsaved preview changes back to last published website state.');
+  };
+
+  const handlePublishAllWebsiteChanges = handlePublishAllCustomizations;
+  const handleDiscardDraftChanges = handleDiscardCustomizeDraft;
+
+  const handleMoveWidget = (fromIdx: number, toIdx: number) => {
+    if (toIdx < 0 || toIdx >= customWidgets.length || fromIdx === toIdx) return;
+    const updated = [...customWidgets];
+    const [moved] = updated.splice(fromIdx, 1);
+    updated.splice(toIdx, 0, moved);
+    setCustomWidgets(updated);
+    setHasUnsavedCustomizeChanges(true);
+    showStatus('Widget order updated in live preview. Click Publish to save.');
+  };
+
+  const handleSavePageSections = async (updatedSections?: PageSectionItem[]) => {
+    const target = updatedSections || pageSections;
+    setSavingPageSections(true);
+    try {
+      await saveWebsiteSettings({ pageSections: target });
+      setHasUnsavedCustomizeChanges(false);
+      showStatus('Page sections, text, fonts, sizing & layout published live!');
+    } catch {
+      showStatus('Page sections saved locally.', 'error');
+    } finally {
+      setSavingPageSections(false);
+    }
+  };
+
+  const handleUpdateCurrentSection = (updater: (sec: PageSectionItem) => PageSectionItem) => {
+    setPageSections((prev) =>
+      prev.map((sec) => (sec.id === selectedSectionId ? updater(sec) : sec))
+    );
+    setHasUnsavedCustomizeChanges(true);
+  };
+
+  const handleMovePageSection = (fromIdx: number, toIdx: number) => {
+    if (toIdx < 0 || toIdx >= pageSections.length || fromIdx === toIdx) return;
+    const updated = [...pageSections];
+    const [moved] = updated.splice(fromIdx, 1);
+    updated.splice(toIdx, 0, moved);
+    setPageSections(updated);
+    setHasUnsavedCustomizeChanges(true);
+    showStatus(`Moved "${moved.label}" to #${toIdx + 1} in live preview. Click Publish to save.`);
+  };
+
+  const handleAddCustomPageSection = () => {
+    if (!newPageTitle.trim() || !newPageHeading.trim()) {
+      showStatus('Page Label and Main Heading are required.', 'error');
+      return;
+    }
+    const newSec: PageSectionItem = {
+      id: `custom-page-${Date.now()}`,
+      label: newPageTitle.trim(),
+      isBuiltIn: false,
+      visible: true,
+      htmlTag: 'H2',
+      badgeText: newPageSubheading.trim() || 'ATELIER SHOWCASE',
+      heading: newPageHeading.trim(),
+      subheading: newPageSubheading.trim(),
+      matterText: newPageMatter.trim(),
+      image: newPageImage.trim(),
+      typography: { ...DEFAULT_TYPOGRAPHY_STYLE, textAlign: 'left' },
+      imageStyle: { ...DEFAULT_IMAGE_STYLE },
+      buttons: [
+        {
+          id: `btn-${Date.now()}`,
+          type: 'Primary Emerald',
+          text: 'Explore Collection',
+          link: '#catalogue',
+          icon: 'arrow',
+          buttonId: '',
+          borderType: 'Default',
+          borderRadiusTop: 0,
+          borderRadiusRight: 0,
+          borderRadiusBottom: 0,
+          borderRadiusLeft: 0,
+          paddingTop: 14,
+          paddingRight: 28,
+          paddingBottom: 14,
+          paddingLeft: 28,
+          visible: true,
+        },
+      ],
+      advanced: { ...DEFAULT_CONTAINER_ADVANCED },
+    };
+    const updated = [...pageSections, newSec];
+    setPageSections(updated);
+    setSelectedSectionId(newSec.id);
+    setNewPageTitle('');
+    setNewPageHeading('');
+    setNewPageSubheading('');
+    setNewPageMatter('');
+    setNewPageImage('');
+    setHasUnsavedCustomizeChanges(true);
+    showStatus(`New page "${newSec.label}" added to live preview! Click Save / Publish when ready.`);
+  };
+
+  const handleSaveSocialIcons = async (updatedIcons?: SocialIconItem[]) => {
+    const target = updatedIcons || socialIcons;
+    setSavingSocialIcons(true);
+    try {
+      await saveWebsiteSettings({ socialIcons: target });
+      setHasUnsavedCustomizeChanges(false);
+      showStatus('Social icons & links saved and published across the website!');
+    } catch {
+      showStatus('Saved social icons locally.', 'error');
+    } finally {
+      setSavingSocialIcons(false);
+    }
+  };
+
+  const handleAddSocialIcon = () => {
+    if (!newSocialLink.trim()) {
+      showStatus('Please enter a link or URL for the social icon.', 'error');
+      return;
+    }
+    const newItem: SocialIconItem = {
+      id: `soc-${Date.now()}`,
+      platform: newSocialPlatform,
+      label: newSocialLabel.trim() || newSocialPlatform,
+      link: newSocialLink.trim(),
+      colorType: newSocialColorType,
+      visible: true,
+    };
+    const updated = [...socialIcons, newItem];
+    setSocialIcons(updated);
+    setNewSocialLabel('');
+    setNewSocialLink('');
+    setHasUnsavedCustomizeChanges(true);
+    showStatus('Social icon added to live preview! Click Save / Publish when ready.');
+  };
+
+  const handleSaveWidgets = async (updatedWidgets?: CustomWidgetItem[]) => {
+    const target = updatedWidgets || customWidgets;
+    setSavingWidgets(true);
+    try {
+      await saveWebsiteSettings({ customWidgets: target });
+      setHasUnsavedCustomizeChanges(false);
+      showStatus('Custom widgets saved and published!');
+    } catch {
+      showStatus('Widgets saved locally.', 'error');
+    } finally {
+      setSavingWidgets(false);
+    }
+  };
+
+  const handleAddWidget = () => {
+    if (!newWidgetTitle.trim() && newWidgetType !== 'Divider') {
+      showStatus('Please enter a widget heading or title.', 'error');
+      return;
+    }
+    const item: CustomWidgetItem = {
+      id: `widget-${Date.now()}`,
+      type: newWidgetType,
+      targetSectionId: newWidgetTargetSection,
+      title: newWidgetTitle.trim(),
+      subtitle: newWidgetSubtitle.trim(),
+      content: newWidgetContent.trim(),
+      imageUrl: newWidgetImage.trim(),
+      videoUrl: '',
+      buttonText: newWidgetButtonText.trim(),
+      buttonLink: newWidgetButtonLink.trim(),
+      alignment: 'center',
+      fontSizePx: 28,
+      textColor: '#F5F2EA',
+      backgroundColor: '#0A0A0A',
+      paddingVerticalPx: 36,
+      visible: true,
+    };
+    const updated = [...customWidgets, item];
+    setCustomWidgets(updated);
+    setNewWidgetTitle('');
+    setNewWidgetSubtitle('');
+    setNewWidgetContent('');
+    setNewWidgetImage('');
+    setNewWidgetButtonText('');
+    setNewWidgetButtonLink('');
+    setHasUnsavedCustomizeChanges(true);
+    showStatus('Widget added to live preview! Click Save / Publish when ready.');
+  };
+
+  const handleDropQuickWidgetOnSection = (widgetType: WidgetType, sectionId: string) => {
+    const defaultTitleMap: Record<WidgetType, string> = {
+      Heading: 'NEW ATELIER HEADING',
+      'Text Editor': 'Handcrafted in 92.5 Sterling Silver with heirloom precision.',
+      Image: 'Custom Showcase Frame',
+      Video: 'Atelier Craftsmanship Reel',
+      Button: 'Explore Bespoke Pieces',
+      Divider: '',
+      Container: 'Featured Heritage Block',
+    };
+    const item: CustomWidgetItem = {
+      id: `widget-${Date.now()}`,
+      type: widgetType,
+      targetSectionId: sectionId,
+      title: widgetType === 'Text Editor' ? '' : defaultTitleMap[widgetType],
+      subtitle: widgetType === 'Container' ? 'HYDERABAD ATELIER' : '',
+      content:
+        widgetType === 'Text Editor' || widgetType === 'Container'
+          ? 'Enter your custom story, bridal note, or editorial description here.'
+          : '',
+      imageUrl: widgetType === 'Image' ? heroIsolatedJewelryImg : '',
+      videoUrl: '',
+      buttonText: widgetType === 'Button' ? 'Explore Collection' : '',
+      buttonLink: '#catalogue',
+      alignment: 'center',
+      fontSizePx: 26,
+      textColor: '#F5F2EA',
+      backgroundColor: '#0A0A0A',
+      paddingVerticalPx: 32,
+      visible: true,
+    };
+    setCustomWidgets((prev) => [...prev, item]);
+    setHasUnsavedCustomizeChanges(true);
+    const targetSec = pageSections.find((s) => s.id === sectionId);
+    showStatus(
+      `Dropped "${widgetType}" widget into "${targetSec?.label || sectionId}" in live preview! Click Publish to save.`
+    );
   };
 
   // Product actions
@@ -420,7 +803,8 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     const [movedItem] = updated.splice(fromIndex, 1);
     updated.splice(toIndex, 0, movedItem);
     setHeroSlides(updated);
-    showStatus(`Moved slide from #${fromIndex + 1} to #${toIndex + 1}`);
+    setHasUnsavedCustomizeChanges(true);
+    showStatus(`Moved slide from #${fromIndex + 1} to #${toIndex + 1} in live preview.`);
   };
 
   const handleSaveHeroSlides = async () => {
@@ -431,6 +815,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     setSavingHero(true);
     try {
       await saveWebsiteSettings({ heroSlides });
+      setHasUnsavedCustomizeChanges(false);
       showStatus('Hero section slideshow updated successfully!');
     } catch (err: any) {
       console.warn('Hero update notice:', err);
@@ -455,7 +840,8 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     setNewSlideImage('');
     setNewSlideAlt('');
     setNewSlideVideo('');
-    showStatus('Slide added to hero queue. Click Save Hero Slides to publish.');
+    setHasUnsavedCustomizeChanges(true);
+    showStatus('Slide added to live preview! Click Save / Publish when ready.');
   };
 
   // Discounts & Promo Popup actions
@@ -563,7 +949,10 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
   const handleSaveInstagramFollowers = async () => {
     setSavingInstagram(true);
     try {
-      await saveWebsiteSettings({ instagramFollowersCount: instagramFollowers });
+      await Promise.all([
+        saveWebsiteSettings({ instagramFollowersCount: instagramFollowers }),
+        updateFollowerCount(instagramFollowers),
+      ]);
       showStatus(`Live Instagram community count updated to ${instagramFollowers.toLocaleString('en-US')}!`);
     } catch (err) {
       showStatus('Failed to update Instagram count.', 'error');
@@ -679,8 +1068,8 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
 
         {/* Auth Gatekeeper */}
         {!currentUser ? (
-          <div className="flex-1 flex items-center justify-center p-6 bg-[#090909]">
-            <div className="w-full max-w-md p-8 sm:p-12 text-center space-y-6 bg-[#0E0E0E] border border-[#222222] shadow-2xl rounded-sm">
+          <div className="flex-1 flex items-center justify-center p-6 bg-[#090909] overflow-y-auto">
+            <div className="w-full max-w-md p-8 sm:p-10 text-center space-y-6 bg-[#0E0E0E] border border-[#222222] shadow-2xl rounded-sm">
               <div className="w-16 h-16 mx-auto rounded-full bg-[#181818] border border-[#2B2B2B] flex items-center justify-center text-[#C0A068]">
                 <ShieldCheck className="w-8 h-8 text-[#C0A068]" />
               </div>
@@ -690,9 +1079,9 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                   Private Admin Access
                 </h3>
                 <p className="text-xs sm:text-sm text-stone-400 mt-2 font-light leading-relaxed">
-                  Authorized access restricted exclusively to:
+                  Universal Email Sign-In works anywhere (GitHub Pages, external hosting, or preview). Restricted exclusively to:
                 </p>
-                <div className="mt-3 inline-block px-3 py-1.5 bg-[#141414] border border-[#262626] font-mono text-xs sm:text-sm text-[#A0E2D6] rounded">
+                <div className="mt-2.5 inline-block px-3 py-1 bg-[#141414] border border-[#262626] font-mono text-xs sm:text-sm text-[#A0E2D6] rounded">
                   {BOOTSTRAPPED_ADMIN_EMAIL}
                 </div>
               </div>
@@ -704,18 +1093,51 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                 </div>
               )}
 
-              <div className="pt-2 space-y-3">
+              {/* Primary Universal Admin Email Login (Works on GitHub, custom domains, and everywhere) */}
+              <form onSubmit={handleDirectEmailAdminLogin} className="space-y-3 text-left">
+                <div>
+                  <label className="block text-[10px] font-sans uppercase tracking-[0.2em] text-stone-400 mb-1.5">
+                    Sign In With Authorized Admin Email
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={directLoginEmail}
+                    onChange={(e) => setDirectLoginEmail(e.target.value)}
+                    placeholder={BOOTSTRAPPED_ADMIN_EMAIL}
+                    className="w-full bg-[#151515] border border-[#2D2D2D] focus:border-[#0E5A4F] px-3.5 py-3 text-xs sm:text-sm text-[#F5F2EA] font-mono rounded-sm outline-none transition"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={authSubmitting}
+                  className="w-full py-3.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-[#F5F2EA] text-xs font-sans tracking-[0.2em] uppercase transition duration-300 shadow-xl cursor-pointer flex items-center justify-center gap-2 rounded-sm font-medium"
+                >
+                  <Mail className="w-4 h-4 text-[#A0E2D6]" />
+                  <span>{authSubmitting ? 'VERIFYING...' : 'SIGN IN WITH ADMIN EMAIL'}</span>
+                </button>
+              </form>
+
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-[#222222]" />
+                <span className="flex-shrink mx-3 text-[10px] uppercase tracking-widest text-stone-500">
+                  OR GOOGLE SSO
+                </span>
+                <div className="flex-grow border-t border-[#222222]" />
+              </div>
+
+              <div className="space-y-2">
                 <button
                   type="button"
                   onClick={handleGoogleAdminLogin}
                   disabled={authSubmitting}
-                  className="w-full py-4 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-[#F5F2EA] text-xs font-sans tracking-[0.2em] uppercase transition duration-300 shadow-xl cursor-pointer flex items-center justify-center gap-2 rounded-sm"
+                  className="w-full py-3 bg-[#161616] hover:bg-[#202020] border border-[#2C2C2C] disabled:opacity-50 text-[#EAE6DE] text-xs font-sans tracking-[0.18em] uppercase transition duration-300 cursor-pointer flex items-center justify-center gap-2 rounded-sm"
                 >
-                  <Lock className="w-4 h-4 text-[#A0E2D6]" />
-                  <span>{authSubmitting ? 'SIGNING IN...' : `SIGN IN AS ${BOOTSTRAPPED_ADMIN_EMAIL}`}</span>
+                  <Lock className="w-3.5 h-3.5 text-[#A0E2D6]" />
+                  <span>Sign In with Google Popup</span>
                 </button>
                 <p className="text-[11px] text-stone-500 font-sans leading-relaxed">
-                  Fast, secure single sign-on. No passwords to remember or configure.
+                  Email sign-in above works on all platforms including GitHub Pages &amp; custom domains without popup restrictions.
                 </p>
               </div>
             </div>
@@ -746,37 +1168,113 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                   <ChevronRight className="w-3.5 h-3.5 opacity-60" />
                 </button>
 
-                {/* 2. Hero Section */}
-                <button
-                  onClick={() => setActiveTab('HERO_CUSTOMIZE')}
-                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded text-xs font-sans tracking-wider uppercase transition cursor-pointer ${
-                    activeTab === 'HERO_CUSTOMIZE'
-                      ? 'bg-[#0E5A4F] text-[#F5F2EA] shadow-md font-semibold'
-                      : 'text-stone-400 hover:text-white hover:bg-[#141414]'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Sliders className="w-4 h-4" />
-                    <span>Hero section</span>
-                  </div>
-                  <ChevronRight className="w-3.5 h-3.5 opacity-60" />
-                </button>
+                {/* 2. Customize Website (Merged Hero Section + Website Images + WordPress/Elementor Builder Subcategories) */}
+                <div className="space-y-1">
+                  <button
+                    onClick={() => {
+                      setActiveTab('CUSTOMIZE_WEBSITE');
+                      setIsCustomizeMenuOpen((prev) => (activeTab === 'CUSTOMIZE_WEBSITE' ? !prev : true));
+                    }}
+                    className={`w-full flex items-center justify-between px-3.5 py-3 rounded text-xs font-sans tracking-wider uppercase transition cursor-pointer ${
+                      activeTab === 'CUSTOMIZE_WEBSITE'
+                        ? 'bg-[#0E5A4F] text-[#F5F2EA] shadow-md font-semibold'
+                        : 'text-stone-400 hover:text-white hover:bg-[#141414]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Sliders className="w-4 h-4 text-[#A2DEC8]" />
+                      <span>Customize Website</span>
+                    </div>
+                    {isCustomizeMenuOpen && activeTab === 'CUSTOMIZE_WEBSITE' ? (
+                      <ChevronUp className="w-3.5 h-3.5 opacity-80" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                    )}
+                  </button>
 
-                {/* 3. Website Media & Page Images (Change Images Everywhere) */}
-                <button
-                  onClick={() => setActiveTab('WEBSITE_MEDIA')}
-                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded text-xs font-sans tracking-wider uppercase transition cursor-pointer ${
-                    activeTab === 'WEBSITE_MEDIA'
-                      ? 'bg-[#0E5A4F] text-[#F5F2EA] shadow-md font-semibold'
-                      : 'text-stone-400 hover:text-white hover:bg-[#141414]'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <ImageIcon className="w-4 h-4 text-[#A2DEC8]" />
-                    <span>Website Images</span>
-                  </div>
-                  <ChevronRight className="w-3.5 h-3.5 opacity-60" />
-                </button>
+                  {/* Sub-Categories under Customize Website */}
+                  {activeTab === 'CUSTOMIZE_WEBSITE' && isCustomizeMenuOpen && (
+                    <div className="ml-3 pl-3 border-l border-[#262626] space-y-1 py-1">
+                      <button
+                        type="button"
+                        onClick={() => setCustomizeSubTab('HOME_HERO_MEDIA')}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
+                          customizeSubTab === 'HOME_HERO_MEDIA'
+                            ? 'bg-[#162623] text-[#A2DEC8] font-medium border border-[#0E5A4F]/50'
+                            : 'text-stone-400 hover:text-white hover:bg-[#141414]'
+                        }`}
+                      >
+                        <Film className="w-3.5 h-3.5 shrink-0" />
+                        <span>1. Home Page &amp; Hero Images</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setCustomizeSubTab('PAGE_SECTIONS_EDITOR')}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
+                          customizeSubTab === 'PAGE_SECTIONS_EDITOR'
+                            ? 'bg-[#162623] text-[#A2DEC8] font-medium border border-[#0E5A4F]/50'
+                            : 'text-stone-400 hover:text-white hover:bg-[#141414]'
+                        }`}
+                      >
+                        <Type className="w-3.5 h-3.5 shrink-0" />
+                        <span>2. Page Matters, Fonts &amp; Sizing</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setCustomizeSubTab('WEBSITE_IMAGES')}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
+                          customizeSubTab === 'WEBSITE_IMAGES'
+                            ? 'bg-[#162623] text-[#A2DEC8] font-medium border border-[#0E5A4F]/50'
+                            : 'text-stone-400 hover:text-white hover:bg-[#141414]'
+                        }`}
+                      >
+                        <ImageIcon className="w-3.5 h-3.5 shrink-0" />
+                        <span>3. All Website Images &amp; Logo</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setCustomizeSubTab('SOCIAL_ICONS_BUTTONS')}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
+                          customizeSubTab === 'SOCIAL_ICONS_BUTTONS'
+                            ? 'bg-[#162623] text-[#A2DEC8] font-medium border border-[#0E5A4F]/50'
+                            : 'text-stone-400 hover:text-white hover:bg-[#141414]'
+                        }`}
+                      >
+                        <Share2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>4. Social Icons &amp; Buttons</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setCustomizeSubTab('WIDGETS_RESPONSIVE')}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
+                          customizeSubTab === 'WIDGETS_RESPONSIVE'
+                            ? 'bg-[#162623] text-[#A2DEC8] font-medium border border-[#0E5A4F]/50'
+                            : 'text-stone-400 hover:text-white hover:bg-[#141414]'
+                        }`}
+                      >
+                        <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
+                        <span>5. Widgets</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setCustomizeSubTab('PAGES_ORDER')}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
+                          customizeSubTab === 'PAGES_ORDER'
+                            ? 'bg-[#162623] text-[#A2DEC8] font-medium border border-[#0E5A4F]/50'
+                            : 'text-stone-400 hover:text-white hover:bg-[#141414]'
+                        }`}
+                      >
+                        <Layers className="w-3.5 h-3.5 shrink-0" />
+                        <span>6. Add Pages &amp; Page Ordering</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
 
                 {/* 4. Discounts & Coupons Popup */}
                 <button
@@ -1006,477 +1504,1799 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                 </div>
               )}
 
-              {/* TAB 2: HERO CUSTOMIZE (Images, Videos, Adding, Removing, Reordering) */}
-              {activeTab === 'HERO_CUSTOMIZE' && (
-                <div className="space-y-8 max-w-5xl mx-auto">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
-                    <div>
-                      <h2 className="font-serif text-2xl text-[#F5F2EA]">Hero Section Slideshow &amp; Media</h2>
-                      <p className="text-xs text-stone-400 mt-1 font-light">
-                        Add, remove, or swap showcase images and videos rendered on the website homepage hero.
-                      </p>
-                    </div>
-                    <button
-                      onClick={handleSaveHeroSlides}
-                      disabled={savingHero}
-                      className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer"
-                    >
-                      {savingHero ? 'Saving...' : 'Save Hero Slides'}
-                    </button>
-                  </div>
-
-                  {/* Active Hero Slides Grid */}
-                  <div className="space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <h3 className="text-xs uppercase tracking-wider text-stone-400">
-                        Current Hero Slides ({heroSlides.length})
-                      </h3>
-                      <span className="text-[11px] text-stone-500 font-sans">
-                        Re-order slides using the position dropdown (e.g., move #2 to #6) or arrows.
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      {heroSlides.map((slide, idx) => (
-                        <div
-                          key={slide.id}
-                          className="bg-[#121212] border border-[#242424] hover:border-[#383838] p-3 rounded-sm flex flex-col justify-between group relative transition shadow-sm"
+              {/* TAB 2: CUSTOMIZE WEBSITE (WordPress / Elementor Style Full Website Customizer with 6 Sub-Categories) */}
+              {activeTab === 'CUSTOMIZE_WEBSITE' && (
+                <div className="space-y-6 max-w-6xl mx-auto">
+                  {/* Top Customize Website Sub-Category Navigation Bar (Scrolls naturally with content, not fixed) */}
+                  <div className="bg-[#111111] border border-[#222222] p-3.5 rounded-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {(
+                        [
+                          { id: 'HOME_HERO_MEDIA', label: '1. Home Hero Media' },
+                          { id: 'PAGE_SECTIONS_EDITOR', label: '2. Page Matters, Fonts & Size' },
+                          { id: 'WEBSITE_IMAGES', label: '3. Website Images & Logo' },
+                          { id: 'SOCIAL_ICONS_BUTTONS', label: '4. Social Icons & Buttons' },
+                          { id: 'WIDGETS_RESPONSIVE', label: '5. Widgets' },
+                          { id: 'PAGES_ORDER', label: '6. Add & Order Pages' },
+                        ] as { id: CustomizeSubCategory; label: string }[]
+                      ).map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setCustomizeSubTab(tab.id)}
+                          className={`px-3 py-1.5 text-[11px] font-sans uppercase tracking-wider rounded transition cursor-pointer ${
+                            customizeSubTab === tab.id
+                              ? 'bg-[#0E5A4F] text-white font-medium shadow'
+                              : 'bg-[#181818] text-stone-400 hover:text-white border border-[#282828]'
+                          }`}
                         >
-                          <div className="relative aspect-[4/3] bg-black rounded overflow-hidden mb-2">
-                            {slide.videoUrl ? (
-                              <video src={slide.videoUrl} autoPlay muted loop className="w-full h-full object-contain" />
-                            ) : (
-                              <img src={slide.image} alt={slide.alt} className="w-full h-full object-contain" />
-                            )}
-                            
-                            {/* Slide Number Badge */}
-                            <div className="absolute top-2 left-2 bg-black/90 border border-white/10 px-2 py-0.5 text-[11px] text-[#A2DEC8] font-mono rounded flex items-center gap-1 shadow">
-                              <span>Position #{idx + 1}</span>
-                            </div>
-
-                            {/* Delete button */}
-                            <button
-                              onClick={() => {
-                                const updated = heroSlides.filter((_, i) => i !== idx);
-                                setHeroSlides(updated);
-                                showStatus(`Slide #${idx + 1} removed.`);
-                              }}
-                              className="absolute top-2 right-2 p-1.5 bg-rose-950/80 hover:bg-rose-700 text-white rounded transition cursor-pointer shadow"
-                              title="Remove slide"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-
-                          <div className="space-y-2">
-                            {/* Slide Alt text */}
-                            <input
-                              type="text"
-                              value={slide.alt}
-                              onChange={(e) => {
-                                const updated = [...heroSlides];
-                                updated[idx].alt = e.target.value;
-                                setHeroSlides(updated);
-                              }}
-                              placeholder="Slide title / alt text"
-                              className="w-full bg-[#181818] border border-[#2A2A2A] px-2.5 py-1.5 text-xs text-stone-200 rounded focus:border-[#0E5A4F] outline-none"
-                            />
-
-                            {/* Position Reordering Bar */}
-                            <div className="flex items-center justify-between gap-1 pt-1.5 border-t border-[#1F1F1F]">
-                              {/* Direct Jump to Position Dropdown (e.g. move #2 to #6) */}
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] uppercase tracking-wider text-stone-400 font-sans">
-                                  Order:
-                                </span>
-                                <select
-                                  value={idx}
-                                  onChange={(e) => handleMoveHeroSlide(idx, Number(e.target.value))}
-                                  className="bg-[#181818] hover:bg-[#222222] border border-[#2B2B2B] text-xs text-[#A2DEC8] font-mono font-medium px-2 py-1 rounded cursor-pointer outline-none transition"
-                                  title="Change slide position (e.g., move #2 to #6)"
-                                >
-                                  {heroSlides.map((_, targetIdx) => (
-                                    <option key={targetIdx} value={targetIdx}>
-                                      #{targetIdx + 1} {targetIdx === idx ? '(Current)' : ''}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              {/* Up / Down Arrow Step Buttons */}
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  disabled={idx === 0}
-                                  onClick={() => handleMoveHeroSlide(idx, idx - 1)}
-                                  className="p-1 bg-[#181818] hover:bg-[#252525] disabled:opacity-30 disabled:hover:bg-[#181818] text-stone-300 rounded border border-[#2A2A2A] transition cursor-pointer"
-                                  title="Move earlier (Shift Up)"
-                                >
-                                  <ArrowUp className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={idx === heroSlides.length - 1}
-                                  onClick={() => handleMoveHeroSlide(idx, idx + 1)}
-                                  className="p-1 bg-[#181818] hover:bg-[#252525] disabled:opacity-30 disabled:hover:bg-[#181818] text-stone-300 rounded border border-[#2A2A2A] transition cursor-pointer"
-                                  title="Move later (Shift Down)"
-                                >
-                                  <ArrowDown className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                          {tab.label}
+                        </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Add New Slide Form */}
-                  <div className="p-6 bg-[#111111] border border-[#242424] rounded-sm space-y-4">
-                    <h3 className="font-serif text-lg text-[#F5F2EA] flex items-center gap-2">
-                      <Plus className="w-4 h-4 text-[#A2DEC8]" />
-                      <span>Add New Hero Slide (Image or Video)</span>
-                    </h3>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {/* Image Source */}
-                      <div className="space-y-2">
-                        <label className="block text-xs uppercase tracking-wider text-stone-400">
-                          Image URL or Upload Photo
-                        </label>
-                        <input
-                          type="text"
-                          value={newSlideImage}
-                          onChange={(e) => setNewSlideImage(e.target.value)}
-                          placeholder=""
-                          className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2.5 text-xs text-[#F5F2EA] rounded outline-none"
-                        />
-                        <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#1F1F1F] hover:bg-[#2A2A2A] text-xs text-stone-300 rounded cursor-pointer transition">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>Upload From Computer / Mobile</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                try {
-                                  const compressed = await compressImage(file);
-                                  setNewSlideImage(compressed);
-                                } catch (err) {
-                                  showStatus('Failed to read image file.', 'error');
-                                }
-                              }
-                            }}
-                          />
-                        </label>
-                      </div>
-
-                      {/* Video Optional */}
-                      <div className="space-y-2">
-                        <label className="block text-xs uppercase tracking-wider text-stone-400">
-                          Optional Video URL (MP4 / WebM)
-                        </label>
-                        <input
-                          type="text"
-                          value={newSlideVideo}
-                          onChange={(e) => setNewSlideVideo(e.target.value)}
-                          placeholder=""
-                          className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2.5 text-xs text-[#F5F2EA] rounded outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-xs uppercase tracking-wider text-stone-400">
-                        Piece Title / Caption
-                      </label>
-                      <input
-                        type="text"
-                        value={newSlideAlt}
-                        onChange={(e) => setNewSlideAlt(e.target.value)}
-                        placeholder=""
-                        className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2.5 text-xs text-[#F5F2EA] rounded outline-none"
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleAddHeroSlide}
-                      className="px-5 py-2.5 bg-[#181818] hover:bg-[#222222] border border-[#333333] text-xs uppercase tracking-wider text-[#A2DEC8] rounded transition cursor-pointer"
-                    >
-                      + Add Slide to Hero Queue
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB: WEBSITE MEDIA & PAGE IMAGES (Change Images Everywhere Across Website) */}
-              {activeTab === 'WEBSITE_MEDIA' && (
-                <div className="space-y-8 max-w-5xl mx-auto">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
-                    <div>
-                      <h2 className="font-serif text-2xl text-[#F5F2EA] flex items-center gap-3">
-                        <ImageIcon className="w-6 h-6 text-[#A2DEC8]" />
-                        <span>Website Images Manager</span>
-                      </h2>
-                      <p className="text-xs text-stone-400 mt-1 font-light">
-                        Change key visual assets, brand logo, and photography across every page and section of the website.
-                      </p>
-                    </div>
-                    <button
-                      onClick={handleSaveWebsiteImages}
-                      disabled={savingWebsiteImages}
-                      className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer shadow-lg"
-                    >
-                      {savingWebsiteImages ? 'Saving Images...' : 'Save All Website Images'}
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* 1. Official Brand Logo & Monogram */}
-                    <div className="bg-[#111111] border border-[#242424] p-5 rounded-sm flex flex-col justify-between space-y-4">
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] uppercase font-mono tracking-widest text-[#A2DEC8]">
-                            Header &amp; Community
-                          </span>
-                          <span className="text-xs text-[#1FD286] font-mono">Free-size / Any Ratio</span>
+                  {/* SUB-CATEGORY 1: HOME PAGE & HERO IMAGES (Adding, Removing, Editing, Reordering) */}
+                  {customizeSubTab === 'HOME_HERO_MEDIA' && (
+                    <div className="space-y-8">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
+                        <div>
+                          <h2 className="font-serif text-2xl text-[#F5F2EA]">
+                            Home Page &amp; Hero Section Slideshow
+                          </h2>
+                          <p className="text-xs text-stone-400 mt-1 font-light">
+                            Add, edit, replace, remove, or reorder showcase images and videos on the homepage hero banner.
+                          </p>
                         </div>
-                        <h4 className="font-serif text-base text-[#F5F2EA]">Brand Logo &amp; Monogram</h4>
-                        <p className="text-xs text-stone-400 mt-1 font-light">
-                          Displayed on the top navbar, Instagram community circle, and footer branding.
-                        </p>
+                        <button
+                          onClick={handleSaveHeroSlides}
+                          disabled={savingHero}
+                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer"
+                        >
+                          {savingHero ? 'Saving...' : 'Save Hero Slides'}
+                        </button>
                       </div>
 
-                      <div className="relative min-h-[180px] max-h-56 bg-black rounded overflow-hidden border border-[#2A2A2A] mx-auto w-full flex items-center justify-center p-3">
-                        <img
-                          src={websiteImages.brandLogo || brandLogoImg}
-                          alt="Brand Logo"
-                          className="max-h-48 max-w-full object-contain rounded border-2 border-white/20 shadow-lg"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <input
-                          type="text"
-                          value={websiteImages.brandLogo}
-                          onChange={(e) =>
-                            setWebsiteImages({ ...websiteImages, brandLogo: e.target.value })
-                          }
-                          placeholder="Image URL..."
-                          className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
-                        />
-                        <label className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#1C1C1C] hover:bg-[#252525] text-xs text-stone-300 rounded cursor-pointer transition border border-[#2A2A2A]">
-                          <Upload className="w-3.5 h-3.5 text-[#A2DEC8]" />
-                          <span>Upload New Logo (Computer / Mobile)</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                try {
-                                  const compressed = await compressImage(file);
-                                  setWebsiteImages({ ...websiteImages, brandLogo: compressed });
-                                  showStatus('Brand logo updated in preview! Click Save to publish.');
-                                } catch {
-                                  showStatus('Failed to read logo image.', 'error');
-                                }
-                              }
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* 2. Brand Story / About Section Feature Image */}
-                    <div className="bg-[#111111] border border-[#242424] p-5 rounded-sm flex flex-col justify-between space-y-4">
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] uppercase font-mono tracking-widest text-[#A2DEC8]">
-                            About Atelier
+                      {/* Active Hero Slides Grid */}
+                      <div className="space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <h3 className="text-xs uppercase tracking-wider text-stone-400">
+                            Current Hero Slides ({heroSlides.length})
+                          </h3>
+                          <span className="text-[11px] text-stone-500 font-sans">
+                            Re-order slides using the position dropdown or arrows, or replace any slide image directly.
                           </span>
-                          <span className="text-xs text-[#1FD286] font-mono">Free-size / Any Ratio</span>
                         </div>
-                        <h4 className="font-serif text-base text-[#F5F2EA]">About Section Showcase Photograph</h4>
-                        <p className="text-xs text-stone-400 mt-1 font-light">
-                          Handcrafted choker photograph rendered in Section 01 (Brand Intro). Free size accepts any portrait, landscape, or square ratio.
-                        </p>
-                      </div>
 
-                      <div className="relative min-h-[200px] max-h-[280px] bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
-                        <img
-                          src={websiteImages.aboutSectionImage}
-                          alt="About Section"
-                          className="w-full h-auto max-h-[260px] object-contain"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <input
-                          type="text"
-                          value={websiteImages.aboutSectionImage}
-                          onChange={(e) =>
-                            setWebsiteImages({ ...websiteImages, aboutSectionImage: e.target.value })
-                          }
-                          placeholder="Image URL..."
-                          className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
-                        />
-                        <label className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#1C1C1C] hover:bg-[#252525] text-xs text-stone-300 rounded cursor-pointer transition border border-[#2A2A2A]">
-                          <Upload className="w-3.5 h-3.5 text-[#A2DEC8]" />
-                          <span>Upload About Showcase Image</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                try {
-                                  const compressed = await compressImage(file);
-                                  setWebsiteImages({ ...websiteImages, aboutSectionImage: compressed });
-                                  showStatus('About image updated in preview! Click Save to publish.');
-                                } catch {
-                                  showStatus('Failed to read image file.', 'error');
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {heroSlides.map((slide, idx) => (
+                            <div
+                              key={slide.id}
+                              draggable
+                              onDragStart={() => setDraggedHeroIndex(idx)}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={() => {
+                                if (draggedHeroIndex !== null && draggedHeroIndex !== idx) {
+                                  handleMoveHeroSlide(draggedHeroIndex, idx);
                                 }
-                              }
-                            }}
+                                setDraggedHeroIndex(null);
+                              }}
+                              className={`bg-[#121212] border ${
+                                draggedHeroIndex === idx ? 'border-[#1FD286] opacity-60' : 'border-[#242424] hover:border-[#383838]'
+                              } p-3 rounded-sm flex flex-col justify-between group relative transition shadow-sm cursor-grab active:cursor-grabbing`}
+                            >
+                              <div className="relative aspect-[4/3] bg-black rounded overflow-hidden mb-2">
+                                {slide.videoUrl ? (
+                                  <video src={slide.videoUrl} autoPlay muted loop className="w-full h-full object-contain" />
+                                ) : (
+                                  <img src={slide.image} alt={slide.alt} className="w-full h-full object-contain" />
+                                )}
+
+                                <div className="absolute top-2 left-2 bg-black/90 border border-white/10 px-2 py-0.5 text-[11px] text-[#A2DEC8] font-mono rounded flex items-center gap-1 shadow">
+                                  <GripVertical className="w-3 h-3 text-stone-400" />
+                                  <span>Drag #{idx + 1}</span>
+                                </div>
+
+                                <button
+                                  onClick={() => {
+                                    const updated = heroSlides.filter((_, i) => i !== idx);
+                                    setHeroSlides(updated);
+                                    setHasUnsavedChanges(true);
+                                    showStatus(`Slide #${idx + 1} removed in preview. Click Publish to save.`);
+                                  }}
+                                  className="absolute top-2 right-2 p-1.5 bg-rose-950/80 hover:bg-rose-700 text-white rounded transition cursor-pointer shadow"
+                                  title="Delete slide"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <div className="space-y-2">
+                                <input
+                                  type="text"
+                                  value={slide.alt}
+                                  onChange={(e) => {
+                                    const updated = [...heroSlides];
+                                    updated[idx].alt = e.target.value;
+                                    setHeroSlides(updated);
+                                    setHasUnsavedChanges(true);
+                                  }}
+                                  placeholder="Slide title / caption"
+                                  className="w-full bg-[#181818] border border-[#2A2A2A] px-2.5 py-1.5 text-xs text-stone-200 rounded focus:border-[#0E5A4F] outline-none"
+                                />
+
+                                <input
+                                  type="text"
+                                  value={slide.image}
+                                  onChange={(e) => {
+                                    const updated = [...heroSlides];
+                                    updated[idx].image = e.target.value;
+                                    setHeroSlides(updated);
+                                    setHasUnsavedChanges(true);
+                                  }}
+                                  placeholder="Replace Image URL..."
+                                  className="w-full bg-[#161616] border border-[#262626] px-2.5 py-1 text-[11px] text-stone-300 rounded outline-none"
+                                />
+
+                                <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[#1F1F1F]">
+                                  <label className="inline-flex items-center gap-1 px-2 py-1 bg-[#1C1C1C] hover:bg-[#252525] text-[10px] text-[#A2DEC8] rounded cursor-pointer border border-[#2C2C2C]">
+                                    <Upload className="w-3 h-3" />
+                                    <span>Replace Photo</span>
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      className="hidden"
+                                      onChange={async (e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                          try {
+                                            const compressed = await compressImage(file);
+                                            const updated = [...heroSlides];
+                                            updated[idx].image = compressed;
+                                            setHeroSlides(updated);
+                                            setHasUnsavedChanges(true);
+                                            showStatus(`Replaced Slide #${idx + 1} in live preview! Click Publish to save.`);
+                                          } catch {
+                                            showStatus('Failed to read image.', 'error');
+                                          }
+                                        }
+                                      }}
+                                    />
+                                  </label>
+
+                                  <div className="flex items-center gap-1">
+                                    <select
+                                      value={idx}
+                                      onChange={(e) => handleMoveHeroSlide(idx, Number(e.target.value))}
+                                      className="bg-[#181818] border border-[#2B2B2B] text-[11px] text-[#A2DEC8] font-mono px-1.5 py-0.5 rounded cursor-pointer outline-none"
+                                    >
+                                      {heroSlides.map((_, targetIdx) => (
+                                        <option key={targetIdx} value={targetIdx}>
+                                          #{targetIdx + 1}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      disabled={idx === 0}
+                                      onClick={() => handleMoveHeroSlide(idx, idx - 1)}
+                                      className="p-1 bg-[#181818] hover:bg-[#252525] disabled:opacity-30 text-stone-300 rounded border border-[#2A2A2A] cursor-pointer"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={idx === heroSlides.length - 1}
+                                      onClick={() => handleMoveHeroSlide(idx, idx + 1)}
+                                      className="p-1 bg-[#181818] hover:bg-[#252525] disabled:opacity-30 text-stone-300 rounded border border-[#2A2A2A] cursor-pointer"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Add New Slide Form */}
+                      <div className="p-6 bg-[#111111] border border-[#242424] rounded-sm space-y-4">
+                        <h3 className="font-serif text-lg text-[#F5F2EA] flex items-center gap-2">
+                          <Plus className="w-4 h-4 text-[#A2DEC8]" />
+                          <span>Add New Home Hero Image or Video</span>
+                        </h3>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="block text-xs uppercase tracking-wider text-stone-400">
+                              Image URL or Upload Photo
+                            </label>
+                            <input
+                              type="text"
+                              value={newSlideImage}
+                              onChange={(e) => setNewSlideImage(e.target.value)}
+                              className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2.5 text-xs text-[#F5F2EA] rounded outline-none"
+                            />
+                            <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#1F1F1F] hover:bg-[#2A2A2A] text-xs text-stone-300 rounded cursor-pointer transition">
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Upload From Computer / Mobile</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    try {
+                                      const compressed = await compressImage(file);
+                                      setNewSlideImage(compressed);
+                                    } catch {
+                                      showStatus('Failed to read image file.', 'error');
+                                    }
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="block text-xs uppercase tracking-wider text-stone-400">
+                              Optional Video URL (MP4 / WebM)
+                            </label>
+                            <input
+                              type="text"
+                              value={newSlideVideo}
+                              onChange={(e) => setNewSlideVideo(e.target.value)}
+                              className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2.5 text-xs text-[#F5F2EA] rounded outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="block text-xs uppercase tracking-wider text-stone-400">
+                            Piece Title / Caption
+                          </label>
+                          <input
+                            type="text"
+                            value={newSlideAlt}
+                            onChange={(e) => setNewSlideAlt(e.target.value)}
+                            className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2.5 text-xs text-[#F5F2EA] rounded outline-none"
                           />
-                        </label>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleAddHeroSlide}
+                          className="px-5 py-2.5 bg-[#181818] hover:bg-[#222222] border border-[#333333] text-xs uppercase tracking-wider text-[#A2DEC8] rounded transition cursor-pointer"
+                        >
+                          + Add Slide to Home Hero
+                        </button>
                       </div>
                     </div>
+                  )}
 
-                    {/* 3. Statement Jewellery Masterwork Photograph */}
-                    <div className="bg-[#111111] border border-[#242424] p-5 rounded-sm flex flex-col justify-between space-y-4">
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] uppercase font-mono tracking-widest text-[#A2DEC8]">
-                            Statement Section
+                  {/* SUB-CATEGORY 2: PAGE MATTERS, HEADINGS, FONTS, SIZING & ELEMENTOR CONTROLS */}
+                  {customizeSubTab === 'PAGE_SECTIONS_EDITOR' && (
+                    <div className="space-y-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
+                        <div>
+                          <h2 className="font-serif text-2xl text-[#F5F2EA]">
+                            Page Matters, Headings, Fonts &amp; Container Size
+                          </h2>
+                          <p className="text-xs text-stone-400 mt-1 font-light">
+                            Select any page section below to edit its headings, subheadings, matter text, image, typography, font size, and container dimensions (Elementor-style Content / Style / Advanced controls).
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSavePageSections()}
+                          disabled={savingPageSections}
+                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer shrink-0"
+                        >
+                          {savingPageSections ? 'Saving...' : 'Save All Page Customizations'}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        {/* Left Column: Page Section Selector List */}
+                        <div className="lg:col-span-4 bg-[#111111] border border-[#222222] p-4 rounded-sm space-y-2">
+                          <span className="text-[10px] font-sans uppercase tracking-[0.22em] text-stone-400 block mb-2">
+                            Select Website Page / Section ({pageSections.length})
                           </span>
-                          <span className="text-xs text-[#1FD286] font-mono">Free-size / Any Ratio</span>
+                          <div className="space-y-1.5 max-h-[540px] overflow-y-auto pr-1">
+                            {pageSections.map((sec, idx) => (
+                              <div
+                                key={sec.id}
+                                onClick={() => setSelectedSectionId(sec.id)}
+                                className={`p-3 rounded-sm border transition cursor-pointer flex items-center justify-between gap-2 ${
+                                  selectedSectionId === sec.id
+                                    ? 'bg-[#162623] border-[#0E5A4F] text-[#F5F2EA]'
+                                    : 'bg-[#161616] border-[#262626] text-stone-300 hover:border-stone-500'
+                                }`}
+                              >
+                                <div className="truncate">
+                                  <span className="text-[10px] font-mono text-[#A2DEC8] block">
+                                    #{idx + 1} • {sec.isBuiltIn ? 'Core Page' : 'Custom Page'}
+                                  </span>
+                                  <span className="text-xs font-medium truncate block">{sec.label}</span>
+                                </div>
+                                <span
+                                  className={`text-[9px] px-1.5 py-0.5 rounded uppercase ${
+                                    sec.visible ? 'bg-emerald-950 text-emerald-300' : 'bg-stone-800 text-stone-400'
+                                  }`}
+                                >
+                                  {sec.visible ? 'Visible' : 'Hidden'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <h4 className="font-serif text-base text-[#F5F2EA]">Statement Haaram Masterpiece</h4>
-                        <p className="text-xs text-stone-400 mt-1 font-light">
-                          The spotlighted emerald masterpiece in Section 03 &ldquo;The Art of the Statement&rdquo;. Free size adapts cleanly to your image dimensions.
-                        </p>
-                      </div>
 
-                      <div className="relative min-h-[200px] max-h-[280px] bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
-                        <img
-                          src={websiteImages.statementHaaramImage}
-                          alt="Statement Haaram"
-                          className="w-full h-auto max-h-[260px] object-contain"
-                        />
-                      </div>
+                        {/* Right Column: Elementor-Style 3-Tab Inspector (Content / Style / Advanced) */}
+                        <div className="lg:col-span-8 bg-[#111111] border border-[#222222] rounded-sm overflow-hidden">
+                          {(() => {
+                            const currentSec = pageSections.find((s) => s.id === selectedSectionId) || pageSections[0];
+                            if (!currentSec) return null;
 
-                      <div className="space-y-2">
-                        <input
-                          type="text"
-                          value={websiteImages.statementHaaramImage}
-                          onChange={(e) =>
-                            setWebsiteImages({ ...websiteImages, statementHaaramImage: e.target.value })
-                          }
-                          placeholder="Image URL..."
-                          className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
-                        />
-                        <label className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#1C1C1C] hover:bg-[#252525] text-xs text-stone-300 rounded cursor-pointer transition border border-[#2A2A2A]">
-                          <Upload className="w-3.5 h-3.5 text-[#A2DEC8]" />
-                          <span>Upload Statement Piece Image</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                try {
-                                  const compressed = await compressImage(file);
-                                  setWebsiteImages({ ...websiteImages, statementHaaramImage: compressed });
-                                  showStatus('Statement image updated in preview! Click Save to publish.');
-                                } catch {
-                                  showStatus('Failed to read image file.', 'error');
-                                }
-                              }
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
+                            return (
+                              <div>
+                                {/* Elementor Inspector Top Tabs */}
+                                <div className="grid grid-cols-3 border-b border-[#252525] bg-[#161616]">
+                                  {(
+                                    [
+                                      { id: 'CONTENT', label: 'Content (Text, Matter & Image)' },
+                                      { id: 'STYLE', label: 'Style (Fonts, Colors & Image Size)' },
+                                      { id: 'ADVANCED', label: 'Advanced (Page Size, Padding & Motion)' },
+                                    ] as const
+                                  ).map((t) => (
+                                    <button
+                                      key={t.id}
+                                      type="button"
+                                      onClick={() => setElementorSubPanel(t.id)}
+                                      className={`py-3 px-2 text-[11px] font-sans uppercase tracking-wider border-b-2 transition cursor-pointer ${
+                                        elementorSubPanel === t.id
+                                          ? 'border-[#0E5A4F] text-[#A2DEC8] bg-[#111111] font-semibold'
+                                          : 'border-transparent text-stone-400 hover:text-white'
+                                      }`}
+                                    >
+                                      {t.label}
+                                    </button>
+                                  ))}
+                                </div>
 
-                    {/* 4. The Art of Silver Craftsmanship Banner */}
-                    <div className="bg-[#111111] border border-[#242424] p-5 rounded-sm flex flex-col justify-between space-y-4">
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] uppercase font-mono tracking-widest text-[#A2DEC8]">
-                            Craftsmanship Section
-                          </span>
-                          <span className="text-xs text-[#1FD286] font-mono">Free-size / Any Ratio</span>
+                                <div className="p-6 space-y-5">
+                                  <div className="flex items-center justify-between border-b border-[#202020] pb-3">
+                                    <div>
+                                      <span className="text-[10px] font-mono uppercase text-[#A2DEC8]">
+                                        Editing Page Section:
+                                      </span>
+                                      <h3 className="font-serif text-xl text-[#F5F2EA]">{currentSec.label}</h3>
+                                    </div>
+                                    <label className="inline-flex items-center gap-2 text-xs text-stone-300 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={currentSec.visible}
+                                        onChange={(e) =>
+                                          handleUpdateCurrentSection((s) => ({ ...s, visible: e.target.checked }))
+                                        }
+                                        className="accent-[#0E5A4F]"
+                                      />
+                                      <span>Show Section on Website</span>
+                                    </label>
+                                  </div>
+
+                                  {/* PANEL 1: CONTENT (Headings, Subheadings, Matter, Image, HTML Tag) */}
+                                  {elementorSubPanel === 'CONTENT' && (
+                                    <div className="space-y-4">
+                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                        <div className="sm:col-span-2 space-y-1.5">
+                                          <label className="block text-xs uppercase tracking-wider text-stone-400">
+                                            Small Badge / Top Sub-Heading
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={currentSec.badgeText}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({ ...s, badgeText: e.target.value }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
+                                          />
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <label className="block text-xs uppercase tracking-wider text-stone-400">
+                                            HTML Heading Tag
+                                          </label>
+                                          <select
+                                            value={currentSec.htmlTag}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                htmlTag: e.target.value as any,
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none"
+                                          >
+                                            {(['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'div', 'section'] as const).map(
+                                              (tag) => (
+                                                <option key={tag} value={tag}>
+                                                  {tag}
+                                                </option>
+                                              )
+                                            )}
+                                          </select>
+                                        </div>
+                                      </div>
+
+                                      <div className="space-y-1.5">
+                                        <label className="block text-xs uppercase tracking-wider text-stone-400">
+                                          Main Page Heading
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={currentSec.heading}
+                                          onChange={(e) =>
+                                            handleUpdateCurrentSection((s) => ({ ...s, heading: e.target.value }))
+                                          }
+                                          className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-sm text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1.5">
+                                        <label className="block text-xs uppercase tracking-wider text-stone-400">
+                                          Secondary Sub-Heading
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={currentSec.subheading}
+                                          onChange={(e) =>
+                                            handleUpdateCurrentSection((s) => ({ ...s, subheading: e.target.value }))
+                                          }
+                                          className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-1.5">
+                                        <label className="block text-xs uppercase tracking-wider text-stone-400">
+                                          Page Matter / Body Description
+                                        </label>
+                                        <textarea
+                                          rows={4}
+                                          value={currentSec.matterText}
+                                          onChange={(e) =>
+                                            handleUpdateCurrentSection((s) => ({ ...s, matterText: e.target.value }))
+                                          }
+                                          className="w-full bg-[#161616] border border-[#2B2B2B] p-3 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F] leading-relaxed"
+                                        />
+                                      </div>
+
+                                      {/* Section Image Replace / Edit / Delete */}
+                                      <div className="p-4 bg-[#151515] border border-[#262626] rounded space-y-3">
+                                        <div className="flex items-center justify-between">
+                                          <label className="block text-xs uppercase tracking-wider text-[#A2DEC8]">
+                                            Section Showcase Image (Change, Edit or Delete)
+                                          </label>
+                                          {currentSec.image && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdateCurrentSection((s) => ({ ...s, image: '' }))
+                                              }
+                                              className="text-[11px] text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                              <span>Remove Image</span>
+                                            </button>
+                                          )}
+                                        </div>
+
+                                        {currentSec.image && (
+                                          <div className="h-40 bg-black border border-[#2A2A2A] rounded flex items-center justify-center p-2">
+                                            <img
+                                              src={currentSec.image}
+                                              alt={currentSec.heading}
+                                              className="max-h-36 object-contain"
+                                            />
+                                          </div>
+                                        )}
+
+                                        <div className="flex flex-col sm:flex-row gap-2">
+                                          <input
+                                            type="text"
+                                            value={currentSec.image}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({ ...s, image: e.target.value }))
+                                            }
+                                            placeholder="Paste image URL..."
+                                            className="flex-1 bg-[#111111] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none"
+                                          />
+                                          <label className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#1F1F1F] hover:bg-[#292929] text-xs text-[#A2DEC8] rounded cursor-pointer border border-[#333333] shrink-0">
+                                            <Upload className="w-3.5 h-3.5" />
+                                            <span>Upload &amp; Replace Image</span>
+                                            <input
+                                              type="file"
+                                              accept="image/*"
+                                              className="hidden"
+                                              onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                  try {
+                                                    const compressed = await compressImage(file);
+                                                    handleUpdateCurrentSection((s) => ({ ...s, image: compressed }));
+                                                    showStatus('Section image updated! Click Save to publish.');
+                                                  } catch {
+                                                    showStatus('Failed to read image.', 'error');
+                                                  }
+                                                }
+                                              }}
+                                            />
+                                          </label>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* PANEL 2: STYLE (Typography, Fonts, Sizes, Colors, Image Dimensions) */}
+                                  {elementorSubPanel === 'STYLE' && (
+                                    <div className="space-y-5">
+                                      <h4 className="text-xs uppercase tracking-wider text-[#A2DEC8] font-mono">
+                                        Typography &amp; Font Styling
+                                      </h4>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Font Family
+                                          </label>
+                                          <select
+                                            value={currentSec.typography.fontFamily}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                typography: { ...s.typography, fontFamily: e.target.value },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          >
+                                            <option value="Cormorant Garamond">Cormorant Garamond (Luxury Serif)</option>
+                                            <option value="Bodoni Moda">Bodoni Moda (Editorial)</option>
+                                            <option value="Plus Jakarta Sans">Plus Jakarta Sans (Modern Sans)</option>
+                                            <option value="Georgia">Georgia Classic</option>
+                                          </select>
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Heading Size (px, 0=Auto)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            max={120}
+                                            value={currentSec.typography.headingSizePx}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                typography: {
+                                                  ...s.typography,
+                                                  headingSizePx: Number(e.target.value),
+                                                },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          />
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Matter Text Size (px, 0=Auto)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            max={60}
+                                            value={currentSec.typography.bodySizePx}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                typography: {
+                                                  ...s.typography,
+                                                  bodySizePx: Number(e.target.value),
+                                                },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Font Weight
+                                          </label>
+                                          <select
+                                            value={currentSec.typography.fontWeight}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                typography: { ...s.typography, fontWeight: e.target.value },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          >
+                                            <option value="300">300 (Light)</option>
+                                            <option value="400">400 (Normal)</option>
+                                            <option value="500">500 (Medium)</option>
+                                            <option value="600">600 (Semi-Bold)</option>
+                                            <option value="700">700 (Bold)</option>
+                                          </select>
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Text Alignment
+                                          </label>
+                                          <select
+                                            value={currentSec.typography.textAlign}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                typography: {
+                                                  ...s.typography,
+                                                  textAlign: e.target.value as any,
+                                                },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          >
+                                            <option value="left">Left</option>
+                                            <option value="center">Center</option>
+                                            <option value="right">Right</option>
+                                            <option value="justify">Justify</option>
+                                          </select>
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Heading Color
+                                          </label>
+                                          <input
+                                            type="color"
+                                            value={currentSec.typography.headingColor || '#F5F2EA'}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                typography: { ...s.typography, headingColor: e.target.value },
+                                              }))
+                                            }
+                                            className="w-full h-9 bg-[#161616] border border-[#2B2B2B] rounded cursor-pointer p-1"
+                                          />
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Body Matter Color
+                                          </label>
+                                          <input
+                                            type="color"
+                                            value={currentSec.typography.bodyColor || '#B8B8B5'}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                typography: { ...s.typography, bodyColor: e.target.value },
+                                              }))
+                                            }
+                                            className="w-full h-9 bg-[#161616] border border-[#2B2B2B] rounded cursor-pointer p-1"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="pt-4 border-t border-[#222222] space-y-4">
+                                        <h4 className="text-xs uppercase tracking-wider text-[#A2DEC8] font-mono">
+                                          Image Size, Fit &amp; Border Radius
+                                        </h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                                          <div className="space-y-1.5">
+                                            <label className="block text-[11px] uppercase text-stone-400">
+                                              Width (%)
+                                            </label>
+                                            <input
+                                              type="number"
+                                              min={10}
+                                              max={100}
+                                              value={currentSec.imageStyle.widthPercent}
+                                              onChange={(e) =>
+                                                handleUpdateCurrentSection((s) => ({
+                                                  ...s,
+                                                  imageStyle: {
+                                                    ...s.imageStyle,
+                                                    widthPercent: Number(e.target.value),
+                                                  },
+                                                }))
+                                              }
+                                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                            />
+                                          </div>
+
+                                          <div className="space-y-1.5">
+                                            <label className="block text-[11px] uppercase text-stone-400">
+                                              Max Height (px, 0=Auto)
+                                            </label>
+                                            <input
+                                              type="number"
+                                              min={0}
+                                              max={1200}
+                                              value={currentSec.imageStyle.heightPx}
+                                              onChange={(e) =>
+                                                handleUpdateCurrentSection((s) => ({
+                                                  ...s,
+                                                  imageStyle: {
+                                                    ...s.imageStyle,
+                                                    heightPx: Number(e.target.value),
+                                                  },
+                                                }))
+                                              }
+                                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                            />
+                                          </div>
+
+                                          <div className="space-y-1.5">
+                                            <label className="block text-[11px] uppercase text-stone-400">
+                                              Object Fit
+                                            </label>
+                                            <select
+                                              value={currentSec.imageStyle.objectFit}
+                                              onChange={(e) =>
+                                                handleUpdateCurrentSection((s) => ({
+                                                  ...s,
+                                                  imageStyle: {
+                                                    ...s.imageStyle,
+                                                    objectFit: e.target.value as any,
+                                                  },
+                                                }))
+                                              }
+                                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                            >
+                                              <option value="contain">Contain (Full Uncropped)</option>
+                                              <option value="cover">Cover</option>
+                                              <option value="fill">Fill</option>
+                                              <option value="scale-down">Scale Down</option>
+                                            </select>
+                                          </div>
+
+                                          <div className="space-y-1.5">
+                                            <label className="block text-[11px] uppercase text-stone-400">
+                                              Opacity (%)
+                                            </label>
+                                            <input
+                                              type="number"
+                                              min={10}
+                                              max={100}
+                                              value={currentSec.imageStyle.opacity}
+                                              onChange={(e) =>
+                                                handleUpdateCurrentSection((s) => ({
+                                                  ...s,
+                                                  imageStyle: {
+                                                    ...s.imageStyle,
+                                                    opacity: Number(e.target.value),
+                                                  },
+                                                }))
+                                              }
+                                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* PANEL 3: ADVANCED (Page Size, Container Width, Padding, Margin, Motion) */}
+                                  {elementorSubPanel === 'ADVANCED' && (
+                                    <div className="space-y-5">
+                                      <h4 className="text-xs uppercase tracking-wider text-[#A2DEC8] font-mono">
+                                        Page Size, Container Layout &amp; Spacing (Elementor Advanced)
+                                      </h4>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Container Layout
+                                          </label>
+                                          <select
+                                            value={currentSec.advanced.containerLayout}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                advanced: {
+                                                  ...s.advanced,
+                                                  containerLayout: e.target.value as any,
+                                                },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          >
+                                            <option value="Flexbox">Flexbox</option>
+                                            <option value="Grid">Grid</option>
+                                            <option value="Block">Block</option>
+                                          </select>
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Content Width
+                                          </label>
+                                          <select
+                                            value={currentSec.advanced.contentWidth}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                advanced: {
+                                                  ...s.advanced,
+                                                  contentWidth: e.target.value as any,
+                                                },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          >
+                                            <option value="Full Width">Full Width</option>
+                                            <option value="Boxed">Boxed</option>
+                                          </select>
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Min Page Height (vh)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            max={100}
+                                            value={currentSec.advanced.minHeightVh}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                advanced: {
+                                                  ...s.advanced,
+                                                  minHeightVh: Number(e.target.value),
+                                                },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Padding Top (px)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            value={currentSec.advanced.paddingTop}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                advanced: {
+                                                  ...s.advanced,
+                                                  paddingTop: Number(e.target.value),
+                                                },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Padding Bottom (px)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            value={currentSec.advanced.paddingBottom}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                advanced: {
+                                                  ...s.advanced,
+                                                  paddingBottom: Number(e.target.value),
+                                                },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Background Color
+                                          </label>
+                                          <input
+                                            type="color"
+                                            value={currentSec.advanced.backgroundColor || '#0B0B0B'}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                advanced: {
+                                                  ...s.advanced,
+                                                  backgroundColor: e.target.value,
+                                                },
+                                              }))
+                                            }
+                                            className="w-full h-9 bg-[#161616] border border-[#2B2B2B] rounded cursor-pointer p-1"
+                                          />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          <label className="block text-[11px] uppercase text-stone-400">
+                                            Entrance Animation
+                                          </label>
+                                          <select
+                                            value={currentSec.advanced.entranceAnimation}
+                                            onChange={(e) =>
+                                              handleUpdateCurrentSection((s) => ({
+                                                ...s,
+                                                advanced: {
+                                                  ...s.advanced,
+                                                  entranceAnimation: e.target.value as any,
+                                                },
+                                              }))
+                                            }
+                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                                          >
+                                            <option value="Fade In Up">Fade In Up</option>
+                                            <option value="Fade In">Fade In</option>
+                                            <option value="Zoom In">Zoom In</option>
+                                            <option value="None">None</option>
+                                          </select>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div className="pt-4 border-t border-[#222222] flex justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSavePageSections()}
+                                      className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] text-white text-xs uppercase tracking-widest rounded transition cursor-pointer"
+                                    >
+                                      Save Changes to {currentSec.label}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
-                        <h4 className="font-serif text-base text-[#F5F2EA]">Master Jeweler Atelier Banner</h4>
-                        <p className="text-xs text-stone-400 mt-1 font-light">
-                          Photography of artisan silver crafting in Section 05 &ldquo;The Art of Silver&rdquo;. Adapts to any uploaded aspect ratio.
-                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SUB-CATEGORY 3: ALL WEBSITE IMAGES & LOGO MANAGER */}
+                  {customizeSubTab === 'WEBSITE_IMAGES' && (
+                    <div className="space-y-8">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
+                        <div>
+                          <h2 className="font-serif text-2xl text-[#F5F2EA] flex items-center gap-3">
+                            <ImageIcon className="w-6 h-6 text-[#A2DEC8]" />
+                            <span>All Website Images &amp; Logo Manager</span>
+                          </h2>
+                          <p className="text-xs text-stone-400 mt-1 font-light">
+                            Replace, edit, or remove key photography and brand logos across every section of the website.
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleSaveWebsiteImages}
+                          disabled={savingWebsiteImages}
+                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer shadow-lg"
+                        >
+                          {savingWebsiteImages ? 'Saving Images...' : 'Save All Website Images'}
+                        </button>
                       </div>
 
-                      <div className="relative min-h-[200px] max-h-[280px] bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
-                        <img
-                          src={websiteImages.craftsmanshipBanner}
-                          alt="Craftsmanship Banner"
-                          className="w-full h-auto max-h-[260px] object-contain"
-                        />
-                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* 1. Official Brand Logo */}
+                        <div className="bg-[#111111] border border-[#242424] p-5 rounded-sm flex flex-col justify-between space-y-4">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] uppercase font-mono tracking-widest text-[#A2DEC8]">
+                                Header &amp; Community
+                              </span>
+                              <span className="text-xs text-[#1FD286] font-mono">Free-size / Any Ratio</span>
+                            </div>
+                            <h4 className="font-serif text-base text-[#F5F2EA]">Brand Logo &amp; Monogram</h4>
+                            <p className="text-xs text-stone-400 mt-1 font-light">
+                              Displayed on the top navbar, Instagram community circle, and footer branding.
+                            </p>
+                          </div>
 
-                      <div className="space-y-2">
-                        <input
-                          type="text"
-                          value={websiteImages.craftsmanshipBanner}
-                          onChange={(e) =>
-                            setWebsiteImages({ ...websiteImages, craftsmanshipBanner: e.target.value })
-                          }
-                          placeholder="Image URL..."
-                          className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
-                        />
-                        <label className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#1C1C1C] hover:bg-[#252525] text-xs text-stone-300 rounded cursor-pointer transition border border-[#2A2A2A]">
-                          <Upload className="w-3.5 h-3.5 text-[#A2DEC8]" />
-                          <span>Upload Craftsmanship Banner</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                try {
-                                  const compressed = await compressImage(file);
-                                  setWebsiteImages({ ...websiteImages, craftsmanshipBanner: compressed });
-                                  showStatus('Craftsmanship banner updated in preview! Click Save to publish.');
-                                } catch {
-                                  showStatus('Failed to read image file.', 'error');
-                                }
+                          <div className="relative min-h-[180px] max-h-56 bg-black rounded overflow-hidden border border-[#2A2A2A] mx-auto w-full flex items-center justify-center p-3">
+                            <img
+                              src={websiteImages.brandLogo || brandLogoImg}
+                              alt="Brand Logo"
+                              className="max-h-48 max-w-full object-contain rounded border-2 border-white/20 shadow-lg"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={websiteImages.brandLogo}
+                              onChange={(e) =>
+                                setWebsiteImages({ ...websiteImages, brandLogo: e.target.value })
                               }
-                            }}
-                          />
-                        </label>
+                              placeholder="Image URL..."
+                              className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
+                            />
+                            <label className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#1C1C1C] hover:bg-[#252525] text-xs text-stone-300 rounded cursor-pointer transition border border-[#2A2A2A]">
+                              <Upload className="w-3.5 h-3.5 text-[#A2DEC8]" />
+                              <span>Upload New Logo (Computer / Mobile)</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    try {
+                                      const compressed = await compressImage(file);
+                                      setWebsiteImages({ ...websiteImages, brandLogo: compressed });
+                                      showStatus('Brand logo updated in preview! Click Save to publish.');
+                                    } catch {
+                                      showStatus('Failed to read logo image.', 'error');
+                                    }
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* 2. Brand Story / About Section Feature Image */}
+                        <div className="bg-[#111111] border border-[#242424] p-5 rounded-sm flex flex-col justify-between space-y-4">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] uppercase font-mono tracking-widest text-[#A2DEC8]">
+                                About Atelier
+                              </span>
+                              <span className="text-xs text-[#1FD286] font-mono">Free-size / Any Ratio</span>
+                            </div>
+                            <h4 className="font-serif text-base text-[#F5F2EA]">About Section Showcase Photograph</h4>
+                            <p className="text-xs text-stone-400 mt-1 font-light">
+                              Handcrafted choker photograph rendered in Section 01 (Brand Intro).
+                            </p>
+                          </div>
+
+                          <div className="relative min-h-[200px] max-h-[280px] bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
+                            <img
+                              src={websiteImages.aboutSectionImage}
+                              alt="About Section"
+                              className="w-full h-auto max-h-[260px] object-contain"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={websiteImages.aboutSectionImage}
+                              onChange={(e) => {
+                                setWebsiteImages({ ...websiteImages, aboutSectionImage: e.target.value });
+                                setHasUnsavedChanges(true);
+                              }}
+                              placeholder="Image URL..."
+                              className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
+                            />
+                            <label className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#1C1C1C] hover:bg-[#252525] text-xs text-stone-300 rounded cursor-pointer transition border border-[#2A2A2A]">
+                              <Upload className="w-3.5 h-3.5 text-[#A2DEC8]" />
+                              <span>Upload About Showcase Image</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    try {
+                                      const compressed = await compressImage(file);
+                                      setWebsiteImages({ ...websiteImages, aboutSectionImage: compressed });
+                                      setHasUnsavedChanges(true);
+                                      showStatus('About image updated in live preview! Click Publish to save.');
+                                    } catch {
+                                      showStatus('Failed to read image file.', 'error');
+                                    }
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* 3. Statement Jewellery Masterwork Photograph */}
+                        <div className="bg-[#111111] border border-[#242424] p-5 rounded-sm flex flex-col justify-between space-y-4">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] uppercase font-mono tracking-widest text-[#A2DEC8]">
+                                Statement Section
+                              </span>
+                              <span className="text-xs text-[#1FD286] font-mono">Free-size / Any Ratio</span>
+                            </div>
+                            <h4 className="font-serif text-base text-[#F5F2EA]">Statement Haaram Masterpiece</h4>
+                            <p className="text-xs text-stone-400 mt-1 font-light">
+                              The spotlighted emerald masterpiece in Section 03 &ldquo;The Art of the Statement&rdquo;.
+                            </p>
+                          </div>
+
+                          <div className="relative min-h-[200px] max-h-[280px] bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
+                            <img
+                              src={websiteImages.statementHaaramImage}
+                              alt="Statement Haaram"
+                              className="w-full h-auto max-h-[260px] object-contain"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={websiteImages.statementHaaramImage}
+                              onChange={(e) => {
+                                setWebsiteImages({ ...websiteImages, statementHaaramImage: e.target.value });
+                                setHasUnsavedChanges(true);
+                              }}
+                              placeholder="Image URL..."
+                              className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
+                            />
+                            <label className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#1C1C1C] hover:bg-[#252525] text-xs text-stone-300 rounded cursor-pointer transition border border-[#2A2A2A]">
+                              <Upload className="w-3.5 h-3.5 text-[#A2DEC8]" />
+                              <span>Upload Statement Piece Image</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    try {
+                                      const compressed = await compressImage(file);
+                                      setWebsiteImages({ ...websiteImages, statementHaaramImage: compressed });
+                                      setHasUnsavedChanges(true);
+                                      showStatus('Statement image updated in live preview! Click Publish to save.');
+                                    } catch {
+                                      showStatus('Failed to read image file.', 'error');
+                                    }
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* 4. The Art of Silver Craftsmanship Banner */}
+                        <div className="bg-[#111111] border border-[#242424] p-5 rounded-sm flex flex-col justify-between space-y-4">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] uppercase font-mono tracking-widest text-[#A2DEC8]">
+                                Craftsmanship Section
+                              </span>
+                              <span className="text-xs text-[#1FD286] font-mono">Free-size / Any Ratio</span>
+                            </div>
+                            <h4 className="font-serif text-base text-[#F5F2EA]">Master Jeweler Atelier Banner</h4>
+                            <p className="text-xs text-stone-400 mt-1 font-light">
+                              Photography of artisan silver crafting in Section 05 &ldquo;The Art of Silver&rdquo;.
+                            </p>
+                          </div>
+
+                          <div className="relative min-h-[200px] max-h-[280px] bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
+                            <img
+                              src={websiteImages.craftsmanshipBanner}
+                              alt="Craftsmanship Banner"
+                              className="w-full h-auto max-h-[260px] object-contain"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={websiteImages.craftsmanshipBanner}
+                              onChange={(e) => {
+                                setWebsiteImages({ ...websiteImages, craftsmanshipBanner: e.target.value });
+                                setHasUnsavedChanges(true);
+                              }}
+                              placeholder="Image URL..."
+                              className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
+                            />
+                            <label className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-[#1C1C1C] hover:bg-[#252525] text-xs text-stone-300 rounded cursor-pointer transition border border-[#2A2A2A]">
+                              <Upload className="w-3.5 h-3.5 text-[#A2DEC8]" />
+                              <span>Upload Craftsmanship Banner</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    try {
+                                      const compressed = await compressImage(file);
+                                      setWebsiteImages({ ...websiteImages, craftsmanshipBanner: compressed });
+                                      setHasUnsavedChanges(true);
+                                      showStatus('Craftsmanship banner updated in live preview! Click Publish to save.');
+                                    } catch {
+                                      showStatus('Failed to read image file.', 'error');
+                                    }
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Bottom Save Reminder */}
-                  <div className="p-4 bg-[#141414] border border-[#262626] rounded flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="text-xs text-stone-400">
-                      Looking to change Hero Slides, Signature Collections, or Catalogue product images? Use the dedicated tabs on the left.
+                  {/* SUB-CATEGORY 4: SOCIAL ICONS (ALL PLATFORMS) & BUTTONS MANAGER */}
+                  {customizeSubTab === 'SOCIAL_ICONS_BUTTONS' && (
+                    <div className="space-y-8">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
+                        <div>
+                          <h2 className="font-serif text-2xl text-[#F5F2EA]">
+                            Social Icons (All Platforms) &amp; Action Buttons
+                          </h2>
+                          <p className="text-xs text-stone-400 mt-1 font-light">
+                            Add, edit, remove, or link any social platform icon (Instagram, WhatsApp, YouTube, LinkedIn, Facebook, Pinterest, X, Telegram, Email, Phone, Location) and customize page buttons.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveSocialIcons()}
+                          disabled={savingSocialIcons}
+                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer"
+                        >
+                          {savingSocialIcons ? 'Saving...' : 'Save Social Icons & Links'}
+                        </button>
+                      </div>
+
+                      {/* Existing Social Icons List */}
+                      <div className="grid grid-cols-1 gap-4">
+                        {socialIcons.map((soc, idx) => (
+                          <div
+                            key={soc.id}
+                            className="bg-[#111111] border border-[#242424] p-4 rounded-sm space-y-3 flex flex-col justify-between"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="px-2.5 py-1 bg-[#182825] text-[#A2DEC8] text-xs font-mono rounded border border-[#0E5A4F]/40">
+                                  {soc.platform}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={soc.label}
+                                  onChange={(e) => {
+                                    const updated = [...socialIcons];
+                                    updated[idx].label = e.target.value;
+                                    setSocialIcons(updated);
+                                    setHasUnsavedChanges(true);
+                                  }}
+                                  className="bg-[#161616] border border-[#2B2B2B] px-2.5 py-1 text-xs text-[#F5F2EA] rounded outline-none"
+                                />
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <label className="flex items-center gap-1 text-[11px] text-stone-400 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={soc.visible}
+                                    onChange={(e) => {
+                                      const updated = [...socialIcons];
+                                      updated[idx].visible = e.target.checked;
+                                      setSocialIcons(updated);
+                                      setHasUnsavedChanges(true);
+                                    }}
+                                    className="accent-[#0E5A4F]"
+                                  />
+                                  <span>Active</span>
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = socialIcons.filter((_, i) => i !== idx);
+                                    setSocialIcons(updated);
+                                    setHasUnsavedChanges(true);
+                                    showStatus('Social icon removed in preview. Click Publish to save.');
+                                  }}
+                                  className="p-1 text-rose-400 hover:text-rose-300 cursor-pointer"
+                                  title="Delete Social Icon"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <div className="sm:col-span-2">
+                                <input
+                                  type="text"
+                                  value={soc.link}
+                                  onChange={(e) => {
+                                    const updated = [...socialIcons];
+                                    updated[idx].link = e.target.value;
+                                    setSocialIcons(updated);
+                                    setHasUnsavedChanges(true);
+                                  }}
+                                  placeholder="https://... or mailto:..."
+                                  className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none"
+                                />
+                              </div>
+                              <select
+                                value={soc.colorType}
+                                onChange={(e) => {
+                                  const updated = [...socialIcons];
+                                  updated[idx].colorType = e.target.value as any;
+                                  setSocialIcons(updated);
+                                  setHasUnsavedChanges(true);
+                                }}
+                                className="bg-[#161616] border border-[#2B2B2B] px-2.5 py-2 text-xs text-[#F5F2EA] rounded"
+                              >
+                                <option value="Official Color">Official Color</option>
+                                <option value="Emerald Luxury">Emerald Luxury</option>
+                                <option value="Silver Monochrome">Silver Monochrome</option>
+                                <option value="Custom Color">Custom Color</option>
+                              </select>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Add New Social Icon (All Platform Options) */}
+                      <div className="p-5 bg-[#111111] border border-[#242424] rounded-sm space-y-4">
+                        <h3 className="font-serif text-lg text-[#F5F2EA] flex items-center gap-2">
+                          <Plus className="w-4 h-4 text-[#A2DEC8]" />
+                          <span>Add New Social Icon Link</span>
+                        </h3>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] uppercase text-stone-400">Platform Icon</label>
+                            <select
+                              value={newSocialPlatform}
+                              onChange={(e) => setNewSocialPlatform(e.target.value as SocialPlatformType)}
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            >
+                              {(
+                                [
+                                  'Instagram',
+                                  'WhatsApp',
+                                  'YouTube',
+                                  'LinkedIn',
+                                  'Facebook',
+                                  'Pinterest',
+                                  'X / Twitter',
+                                  'Telegram',
+                                  'Envelope',
+                                  'Phone',
+                                  'MapPin',
+                                  'Globe',
+                                ] as SocialPlatformType[]
+                              ).map((p) => (
+                                <option key={p} value={p}>
+                                  {p}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] uppercase text-stone-400">Display Label</label>
+                            <input
+                              type="text"
+                              value={newSocialLabel}
+                              onChange={(e) => setNewSocialLabel(e.target.value)}
+                              placeholder="e.g. YouTube Channel"
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] uppercase text-stone-400">Destination Link / URL</label>
+                            <input
+                              type="text"
+                              value={newSocialLink}
+                              onChange={(e) => setNewSocialLink(e.target.value)}
+                              placeholder="https://..."
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] uppercase text-stone-400">Color Style</label>
+                            <select
+                              value={newSocialColorType}
+                              onChange={(e) => setNewSocialColorType(e.target.value as any)}
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            >
+                              <option value="Official Color">Official Color</option>
+                              <option value="Emerald Luxury">Emerald Luxury</option>
+                              <option value="Silver Monochrome">Silver Monochrome</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleAddSocialIcon}
+                          className="px-5 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] text-white text-xs uppercase tracking-wider rounded transition cursor-pointer"
+                        >
+                          + Add Social Icon to Preview
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={handleSaveWebsiteImages}
-                      disabled={savingWebsiteImages}
-                      className="w-full sm:w-auto px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer"
-                    >
-                      {savingWebsiteImages ? 'Saving...' : 'Save All Website Images'}
-                    </button>
-                  </div>
+                  )}
+
+                  {/* SUB-CATEGORY 5: WIDGETS (Renamed to Widgets, Place in Pages or Section) */}
+                  {customizeSubTab === 'WIDGETS_RESPONSIVE' && (
+                    <div className="space-y-8">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
+                        <div>
+                          <h2 className="font-serif text-2xl text-[#F5F2EA]">
+                            Widgets
+                          </h2>
+                          <p className="text-xs text-stone-400 mt-1 font-light">
+                            Add custom widgets (Heading, Text Editor, Image, Video, Button, Divider, Container) and place them in any page or section of your website.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveWidgets()}
+                          disabled={savingWidgets}
+                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer"
+                        >
+                          {savingWidgets ? 'Saving...' : 'Save All Widgets'}
+                        </button>
+                      </div>
+
+                      {/* Add New Widget Card */}
+                      <div className="p-6 bg-[#111111] border border-[#242424] rounded-sm space-y-4">
+                        <h3 className="font-serif text-lg text-[#F5F2EA] flex items-center gap-2">
+                          <Plus className="w-4 h-4 text-[#A2DEC8]" />
+                          <span>Place Widget in Pages or Section</span>
+                        </h3>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] uppercase text-stone-400">Widget Type</label>
+                            <select
+                              value={newWidgetType}
+                              onChange={(e) => setNewWidgetType(e.target.value as WidgetType)}
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            >
+                              {(
+                                [
+                                  'Heading',
+                                  'Text Editor',
+                                  'Image',
+                                  'Video',
+                                  'Button',
+                                  'Divider',
+                                  'Container',
+                                ] as WidgetType[]
+                              ).map((wt) => (
+                                <option key={wt} value={wt}>
+                                  {wt}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] uppercase text-[#A2DEC8] font-medium">
+                              Place in Pages or Section
+                            </label>
+                            <select
+                              value={newWidgetTargetSection}
+                              onChange={(e) => setNewWidgetTargetSection(e.target.value)}
+                              className="w-full bg-[#161616] border border-[#0E5A4F]/60 px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            >
+                              {pageSections.map((sec) => (
+                                <option key={sec.id} value={sec.id}>
+                                  {sec.label} ({sec.isBuiltIn ? 'Page Section' : 'Custom Page'})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] uppercase text-stone-400">Widget Heading</label>
+                            <input
+                              type="text"
+                              value={newWidgetTitle}
+                              onChange={(e) => setNewWidgetTitle(e.target.value)}
+                              placeholder="Heading text..."
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] uppercase text-stone-400">
+                              Widget Matter / Text Content
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={newWidgetContent}
+                              onChange={(e) => setNewWidgetContent(e.target.value)}
+                              placeholder="Optional paragraph or text matter..."
+                              className="w-full bg-[#161616] border border-[#2B2B2B] p-2.5 text-xs text-[#F5F2EA] rounded"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-[11px] uppercase text-stone-400">
+                              Optional Image URL &amp; Button Link
+                            </label>
+                            <input
+                              type="text"
+                              value={newWidgetImage}
+                              onChange={(e) => setNewWidgetImage(e.target.value)}
+                              placeholder="Image URL (optional)..."
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded mb-2"
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="text"
+                                value={newWidgetButtonText}
+                                onChange={(e) => setNewWidgetButtonText(e.target.value)}
+                                placeholder="Button Label..."
+                                className="bg-[#161616] border border-[#2B2B2B] px-3 py-1.5 text-xs text-[#F5F2EA] rounded"
+                              />
+                              <input
+                                type="text"
+                                value={newWidgetButtonLink}
+                                onChange={(e) => setNewWidgetButtonLink(e.target.value)}
+                                placeholder="Button Link (# or URL)..."
+                                className="bg-[#161616] border border-[#2B2B2B] px-3 py-1.5 text-xs text-[#F5F2EA] rounded"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleAddWidget}
+                          className="px-5 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] text-white text-xs uppercase tracking-wider rounded transition cursor-pointer"
+                        >
+                          + Add Widget to Pages or Section
+                        </button>
+                      </div>
+
+                      {/* Active Custom Widgets List */}
+                      {customWidgets.length > 0 && (
+                        <div className="space-y-3">
+                          <h4 className="text-xs uppercase tracking-wider text-stone-400">
+                            Active Custom Widgets ({customWidgets.length})
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {customWidgets.map((w, idx) => (
+                              <div
+                                key={w.id}
+                                className="p-4 bg-[#111111] border border-[#242424] rounded-sm flex items-center justify-between gap-4"
+                              >
+                                <div>
+                                  <span className="text-[10px] font-mono text-[#A2DEC8] uppercase">
+                                    {w.type} • Placed in: {pageSections.find((s) => s.id === w.targetSectionId)?.label || w.targetSectionId}
+                                  </span>
+                                  <h5 className="font-serif text-base text-[#F5F2EA]">
+                                    {w.title || 'Divider / Block Widget'}
+                                  </h5>
+                                  {w.content && (
+                                    <p className="text-xs text-stone-400 line-clamp-1 mt-0.5">{w.content}</p>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = customWidgets.filter((_, i) => i !== idx);
+                                    setCustomWidgets(updated);
+                                    handleSaveWidgets(updated);
+                                  }}
+                                  className="p-2 text-rose-400 hover:text-rose-300 cursor-pointer"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* SUB-CATEGORY 6: ADDING PAGES & ORDERING PAGES */}
+                  {customizeSubTab === 'PAGES_ORDER' && (
+                    <div className="space-y-8">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
+                        <div>
+                          <h2 className="font-serif text-2xl text-[#F5F2EA]">
+                            Add New Pages &amp; Re-Order Website Sections
+                          </h2>
+                          <p className="text-xs text-stone-400 mt-1 font-light">
+                            Change the vertical order of pages on your website, hide/show sections, or create new custom luxury showcase pages.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSavePageSections()}
+                          disabled={savingPageSections}
+                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer"
+                        >
+                          {savingPageSections ? 'Saving...' : 'Save Page Order & Pages'}
+                        </button>
+                      </div>
+
+                      {/* Page Ordering List */}
+                      <div className="space-y-2.5">
+                        {pageSections.map((sec, idx) => (
+                          <div
+                            key={sec.id}
+                            className="p-4 bg-[#111111] border border-[#242424] rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="w-8 h-8 rounded bg-[#181818] border border-[#2B2B2B] flex items-center justify-center font-mono text-xs text-[#A2DEC8]">
+                                #{idx + 1}
+                              </span>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-serif text-base text-[#F5F2EA]">{sec.label}</h4>
+                                  <span className="text-[10px] font-mono px-2 py-0.5 bg-[#181818] text-stone-400 rounded">
+                                    {sec.isBuiltIn ? 'Core Section' : 'Custom Added Page'}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-stone-400 line-clamp-1">{sec.heading}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSectionId(sec.id);
+                                  setCustomizeSubTab('PAGE_SECTIONS_EDITOR');
+                                }}
+                                className="px-3 py-1.5 bg-[#181818] hover:bg-[#222222] text-xs text-[#A2DEC8] border border-[#2C2C2C] rounded cursor-pointer flex items-center gap-1"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>Edit Page</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMovePageSection(idx, idx - 1)}
+                                className="p-1.5 bg-[#181818] hover:bg-[#252525] disabled:opacity-30 text-stone-300 rounded border border-[#2A2A2A] cursor-pointer"
+                                title="Move Page Up"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === pageSections.length - 1}
+                                onClick={() => handleMovePageSection(idx, idx + 1)}
+                                className="p-1.5 bg-[#111818] hover:bg-[#252525] disabled:opacity-30 text-stone-300 rounded border border-[#2A2A2A] cursor-pointer"
+                                title="Move Page Down"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+
+                              {!sec.isBuiltIn && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = pageSections.filter((s) => s.id !== sec.id);
+                                    setPageSections(updated);
+                                    handleSavePageSections(updated);
+                                  }}
+                                  className="p-1.5 text-rose-400 hover:text-rose-300 cursor-pointer"
+                                  title="Delete Custom Page"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Create New Custom Page Form */}
+                      <div className="p-6 bg-[#111111] border border-[#242424] rounded-sm space-y-4">
+                        <h3 className="font-serif text-lg text-[#F5F2EA] flex items-center gap-2">
+                          <Plus className="w-4 h-4 text-[#A2DEC8]" />
+                          <span>Add New Custom Page / Section to Website</span>
+                        </h3>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="block text-xs uppercase text-stone-400">Page Title (Admin Label)</label>
+                            <input
+                              type="text"
+                              value={newPageTitle}
+                              onChange={(e) => setNewPageTitle(e.target.value)}
+                              placeholder="e.g. Royal Bridal Exhibition 2026"
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-xs uppercase text-stone-400">Main Page Heading</label>
+                            <input
+                              type="text"
+                              value={newPageHeading}
+                              onChange={(e) => setNewPageHeading(e.target.value)}
+                              placeholder="e.g. The Nizam Heritage Bridal Showcase"
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="block text-xs uppercase text-stone-400">Sub-Heading / Badge</label>
+                            <input
+                              type="text"
+                              value={newPageSubheading}
+                              onChange={(e) => setNewPageSubheading(e.target.value)}
+                              placeholder="e.g. LIMITED EDITION SILVER HEIRLOOMS"
+                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="block text-xs uppercase text-stone-400">Showcase Image URL or Upload</label>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={newPageImage}
+                                onChange={(e) => setNewPageImage(e.target.value)}
+                                placeholder="Image URL..."
+                                className="flex-1 bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
+                              />
+                              <label className="px-3 py-2 bg-[#1F1F1F] hover:bg-[#292929] text-xs text-[#A2DEC8] rounded cursor-pointer border border-[#333333] flex items-center gap-1">
+                                <Upload className="w-3.5 h-3.5" />
+                                <span>Upload</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      const compressed = await compressImage(file);
+                                      setNewPageImage(compressed);
+                                    }
+                                  }}
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-xs uppercase text-stone-400">Page Matter / Description</label>
+                          <textarea
+                            rows={3}
+                            value={newPageMatter}
+                            onChange={(e) => setNewPageMatter(e.target.value)}
+                            placeholder="Enter full page description and story matter..."
+                            className="w-full bg-[#161616] border border-[#2B2B2B] p-3 text-xs text-[#F5F2EA] rounded"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleAddCustomPageSection}
+                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] text-white text-xs uppercase tracking-wider rounded transition cursor-pointer"
+                        >
+                          + Create &amp; Publish New Page Section
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
