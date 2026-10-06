@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { ArrowUpRight, ArrowLeft, MessageCircle, Eye, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
-import { SIGNATURE_COLLECTIONS, CATALOGUE_ITEMS, BRAND_INFO } from '../data/jewelryData';
+import { SIGNATURE_COLLECTIONS, CATALOGUE_ITEMS, BRAND_INFO, heroIsolatedJewelryImg } from '../data/jewelryData';
 import { JewelryCategory, CollectionCard, JewelryItem } from '../types/jewelry';
-import { PageSectionItem } from '../lib/websiteSettingsService';
+import { PageSectionItem, normalizeImageUrl } from '../lib/websiteSettingsService';
 
 interface SignatureCollectionsProps {
   onSelectCategory: (category: JewelryCategory) => void;
@@ -110,8 +110,14 @@ export const SignatureCollections: React.FC<SignatureCollectionsProps> = ({
               {/* Cover Image in clean contained black box */}
               <div className="md:col-span-4 aspect-[4/3] bg-black border border-[#262626] rounded-sm overflow-hidden flex items-center justify-center p-3">
                 <img
-                  src={selectedFolderCollection.image}
+                  src={normalizeImageUrl(selectedFolderCollection.image) || selectedFolderCollection.image || heroIsolatedJewelryImg}
                   alt={selectedFolderCollection.name}
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (target.src !== heroIsolatedJewelryImg) {
+                      target.src = heroIsolatedJewelryImg;
+                    }
+                  }}
                   className="w-full h-full object-contain"
                 />
               </div>
@@ -201,8 +207,14 @@ export const SignatureCollections: React.FC<SignatureCollectionsProps> = ({
                         {/* Product Image Frame */}
                         <div className="relative aspect-[4/3] w-full bg-black flex items-center justify-center overflow-hidden border-b border-[#202020] p-2">
                           <img
-                            src={item.image || (item.images && item.images[0])}
+                            src={normalizeImageUrl(item.image || (item.images && item.images[0])) || item.image || (item.images && item.images[0]) || heroIsolatedJewelryImg}
                             alt={item.name}
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              if (target.src !== heroIsolatedJewelryImg) {
+                                target.src = heroIsolatedJewelryImg;
+                              }
+                            }}
                             className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500 ease-out"
                           />
                         </div>
@@ -308,9 +320,15 @@ export const SignatureCollections: React.FC<SignatureCollectionsProps> = ({
                   {/* Top: Contained Aspect Frame (4:3) with centered object-contain on solid black background */}
                   <div className="relative aspect-[4/3] w-full overflow-hidden bg-black flex items-center justify-center border-b border-[#202020] shrink-0">
                     <img
-                      src={col.image}
+                      src={normalizeImageUrl(col.image) || col.image || heroIsolatedJewelryImg}
                       alt={`${col.name} - Jewel Botanica Silver Jewellery`}
                       referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (target.src !== heroIsolatedJewelryImg) {
+                          target.src = heroIsolatedJewelryImg;
+                        }
+                      }}
                       className="w-full h-full object-contain object-center transform scale-100 group-hover:scale-105 transition-transform duration-700 ease-out p-2"
                     />
                   </div>

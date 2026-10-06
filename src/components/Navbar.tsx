@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MessageCircle, Menu, X, ArrowUpRight } from 'lucide-react';
 import { BRAND_INFO, brandLogoImg } from '../data/jewelryData';
+import { normalizeImageUrl } from '../lib/websiteSettingsService';
 
 interface NavbarProps {
   onOpenCustomization?: () => void;
@@ -40,7 +41,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCustomization, logoImage }
   return (
     <>
       <header
-        className={`relative z-40 transition-all duration-500 ${
+        className={`fixed top-0 left-0 right-0 z-40 transition-all duration-500 ${
           scrolled
             ? 'bg-[#080808]/95 backdrop-blur-xl border-b border-[#FFFFFF]/10 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.8)]'
             : 'bg-gradient-to-b from-[#080808]/90 via-[#080808]/50 to-transparent py-5 sm:py-7'
@@ -55,8 +56,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCustomization, logoImage }
           >
             <div className="relative">
               <img
-                src={logoImage || brandLogoImg}
+                src={normalizeImageUrl(logoImage) || logoImage || brandLogoImg}
                 alt="Jewel Botanica Monogram"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (target.src !== brandLogoImg) {
+                    target.src = brandLogoImg;
+                  }
+                }}
                 className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border border-[#FFFFFF]/20 shadow-md group-hover:border-[#0E5A4F] transition-all duration-300"
               />
               <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(14,90,79,0.3)_0%,transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity" />

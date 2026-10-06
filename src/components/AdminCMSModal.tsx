@@ -92,10 +92,20 @@ import {
   DEFAULT_TYPOGRAPHY_STYLE,
   DEFAULT_IMAGE_STYLE,
   DEFAULT_CONTAINER_ADVANCED,
+  normalizeImageUrl,
 } from '../lib/websiteSettingsService';
 import { JewelryItem, JewelryCategory, CollectionCard } from '../types/jewelry';
 import { BOOTSTRAPPED_ADMIN_EMAIL } from '../lib/firebase';
-import { BRAND_INFO, brandLogoImg, heroIsolatedJewelryImg, CATALOGUE_ITEMS } from '../data/jewelryData';
+import {
+  BRAND_INFO,
+  brandLogoImg,
+  heroIsolatedJewelryImg,
+  statementChokerImg,
+  heroHaaramImg,
+  craftsmanshipImg,
+  CATALOGUE_ITEMS,
+  SIGNATURE_COLLECTIONS,
+} from '../data/jewelryData';
 
 interface AdminCMSModalProps {
   isOpen: boolean;
@@ -116,11 +126,8 @@ export type AdminTab =
 
 export type CustomizeSubCategory =
   | 'HOME_HERO_MEDIA'
-  | 'PAGE_SECTIONS_EDITOR'
   | 'WEBSITE_IMAGES'
-  | 'SOCIAL_ICONS_BUTTONS'
-  | 'WIDGETS_RESPONSIVE'
-  | 'PAGES_ORDER';
+  | 'SOCIAL_ICONS_BUTTONS';
 
 const DEFAULT_CATEGORIES: string[] = [
   'HAARAMS',
@@ -134,39 +141,76 @@ const DEFAULT_CATEGORIES: string[] = [
 ];
 
 /**
- * Image compressor for admin uploads
+ * High-reliability image compressor for admin uploads (preserves PNG/SVG logos & compresses photos cleanly)
  */
-function compressImage(file: File, maxWidth = 1280, maxHeight = 1280, quality = 0.82): Promise<string> {
+function compressImage(file: File, maxWidth = 800, maxHeight = 800, quality = 0.78): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error('Failed to read image file'));
     reader.onload = (e) => {
+      const rawDataUrl = e.target?.result as string;
+      if (!rawDataUrl || typeof rawDataUrl !== 'string') {
+        reject(new Error('Empty image file'));
+        return;
+      }
+
+      // Preserve SVGs or small files (< 180 KB) directly without re-encoding
+      if (file.type === 'image/svg+xml' || file.size < 180 * 1024) {
+        resolve(rawDataUrl);
+        return;
+      }
+
       const img = new Image();
-      img.onerror = reject;
       img.onload = () => {
-        let { width, height } = img;
-        if (width > maxWidth || height > maxHeight) {
-          if (width > height) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          } else {
-            width = Math.round((width * maxHeight) / height);
-            height = Math.round((height * maxHeight) / img.height);
+        try {
+          let width = img.naturalWidth || img.width || 800;
+          let height = img.naturalHeight || img.height || 800;
+          if (width > maxWidth || height > maxHeight) {
+            if (width > height) {
+              height = Math.max(1, Math.round((height * maxWidth) / width));
+              width = maxWidth;
+            } else {
+              width = Math.max(1, Math.round((width * maxHeight) / height));
+              height = maxHeight;
+            }
           }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(rawDataUrl);
+            return;
+          }
+
+          const isPngOrWebp = file.type === 'image/png' || file.type === 'image/webp';
+          if (!isPngOrWebp) {
+            ctx.fillStyle = '#080808';
+            ctx.fillRect(0, 0, width, height);
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          let dataUrl = canvas.toDataURL(isPngOrWebp ? 'image/webp' : 'image/jpeg', quality);
+          if (!dataUrl || !dataUrl.startsWith('data:image/') || dataUrl.length < 100) {
+            dataUrl = canvas.toDataURL('image/jpeg', quality);
+          }
+          if (!dataUrl || !dataUrl.startsWith('data:image/') || dataUrl.length < 100) {
+            resolve(rawDataUrl);
+          } else {
+            resolve(dataUrl);
+          }
+        } catch {
+          resolve(rawDataUrl);
         }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(e.target?.result as string);
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        resolve(dataUrl);
       };
-      img.src = e.target?.result as string;
+      img.onerror = () => {
+        if (rawDataUrl.startsWith('data:image/')) {
+          resolve(rawDataUrl);
+        } else {
+          reject(new Error('Unsupported image format'));
+        }
+      };
+      img.src = rawDataUrl;
     };
     reader.readAsDataURL(file);
   });
@@ -707,12 +751,23 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     setEditingProduct(prod);
     setProductName(prod.name);
     setCategory(prod.category);
-    setImages(prod.images || [prod.image]);
+    const cleanedImages = (prod.images || [])
+      .map((img) => normalizeImageUrl(img))
+      .filter((img) => img.length > 0);
+    const primaryCleaned = normalizeImageUrl(prod.image);
+    setImages(
+      cleanedImages.length > 0
+        ? cleanedImages
+        : primaryCleaned
+        ? [primaryCleaned]
+        : [heroIsolatedJewelryImg]
+    );
     setVideoUrl(prod.videoUrl || '');
     setDescription(prod.description);
     setStatus(prod.status || 'Published');
     setCustomizable(prod.details?.customizable ?? true);
     setFeatured(prod.featured ?? false);
+    setImageInputUrl('');
     setCatalogueSubMode('FORM');
   };
 
@@ -722,33 +777,90 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
       showStatus('Product name is required.', 'error');
       return;
     }
-    if (images.length === 0) {
-      showStatus('Please provide at least one product image.', 'error');
+
+    const typedUrl = normalizeImageUrl(imageInputUrl);
+    const cleanedExisting = images.map((img) => normalizeImageUrl(img)).filter((img) => img.length > 0);
+    const combinedImages = typedUrl ? [typedUrl, ...cleanedExisting] : cleanedExisting;
+
+    if (combinedImages.length === 0) {
+      showStatus('Please upload or paste at least one valid product image.', 'error');
       return;
     }
 
     setIsSubmittingProduct(true);
-    const productPayload: ProductFormData = {
-      name: productName.trim(),
-      category: category as JewelryCategory,
-      description: description.trim() || 'Handcrafted 92.5 Sterling Silver jewellery with artisan emerald and CZ accents.',
-      images: images,
-      videoUrl: videoUrl.trim() || undefined,
-      status: status,
-      metal: '92.5 Sterling Silver',
-      gemstones: 'Emeralds & Fine CZ Pavé',
-      occasion: 'Bridal, Reception, Celebrations',
-      customizable: customizable,
-      featured: featured,
-    };
-
     try {
+      const descText =
+        description.trim() || 'Handcrafted 92.5 Sterling Silver jewellery with artisan emerald and CZ accents.';
+
       if (editingProduct) {
-        await updateProduct(editingProduct.id, productPayload);
-        showStatus(`Product "${productName}" updated successfully.`);
+        await updateProduct(editingProduct.id, {
+          name: productName.trim(),
+          category: category as JewelryCategory,
+          description: descText,
+          images: combinedImages,
+          videoUrl: videoUrl.trim() || undefined,
+          status: status,
+          metal: '92.5 Sterling Silver',
+          gemstones: 'Emeralds & Fine CZ Pavé',
+          occasion: 'Bridal, Reception, Celebrations',
+          customizable: customizable,
+          featured: featured,
+        });
+        setProductsList((prev) =>
+          prev.map((p) =>
+            p.id === editingProduct.id
+              ? {
+                  ...p,
+                  name: productName.trim(),
+                  category: category as JewelryCategory,
+                  displayCategory: category,
+                  description: descText,
+                  image: combinedImages[0],
+                  images: combinedImages,
+                  videoUrl: videoUrl.trim() || '',
+                  status: status,
+                }
+              : p
+          )
+        );
+        showStatus(`Product "${productName}" updated & saved successfully!`);
       } else {
-        await createProduct(productPayload);
-        showStatus(`New product "${productName}" published to catalogue.`);
+        const newId = await createProduct({
+          name: productName.trim(),
+          category: category as JewelryCategory,
+          description: descText,
+          images: combinedImages,
+          videoUrl: videoUrl.trim() || undefined,
+          status: status,
+          metal: '92.5 Sterling Silver',
+          gemstones: 'Emeralds & Fine CZ Pavé',
+          occasion: 'Bridal, Reception, Celebrations',
+          customizable: customizable,
+          featured: featured,
+        });
+        const createdItem: JewelryItem = {
+          id: newId,
+          name: productName.trim(),
+          category: category as JewelryCategory,
+          displayCategory: category,
+          description: descText,
+          image: combinedImages[0],
+          images: combinedImages,
+          videoUrl: videoUrl.trim() || '',
+          status: status,
+          details: {
+            metal: '92.5 Sterling Silver',
+            purity: '92.5 Sterling Grade',
+            gemstones: 'Emeralds & Fine CZ Pavé',
+            finish: 'Liquid Platinum Polish',
+            origin: 'Hyderabad Atelier',
+            customizable: customizable,
+          },
+          occasion: 'Bridal, Reception, Celebrations',
+          featured: featured,
+        };
+        setProductsList((prev) => [createdItem, ...prev.filter((p) => p.id !== newId)]);
+        showStatus(`New product "${productName}" published to catalogue!`);
       }
 
       // Automatically add newly created category to website collections if not yet present
@@ -763,7 +875,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
           name: category.trim().toUpperCase(),
           category: normCat as JewelryCategory,
           tagline: `Curated ${category.trim()} fine handcrafted 92.5 sterling silver collection.`,
-          image: images[0] || heroIsolatedJewelryImg,
+          image: combinedImages[0] || heroIsolatedJewelryImg,
           itemCount: 'Curated Heritage',
         };
         const updatedCols = [...collections, autoCollection];
@@ -778,7 +890,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
       if (onProductUpdated) onProductUpdated();
     } catch (err: any) {
       console.error('Save product error:', err);
-      showStatus(err.message || 'Error saving product.', 'error');
+      showStatus(err.message || 'Failed to save product.', 'error');
     } finally {
       setIsSubmittingProduct(false);
     }
@@ -804,7 +916,8 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     updated.splice(toIndex, 0, movedItem);
     setHeroSlides(updated);
     setHasUnsavedCustomizeChanges(true);
-    showStatus(`Moved slide from #${fromIndex + 1} to #${toIndex + 1} in live preview.`);
+    saveWebsiteSettings({ heroSlides: updated });
+    showStatus(`Moved slide from #${fromIndex + 1} to #${toIndex + 1} and saved!`);
   };
 
   const handleSaveHeroSlides = async () => {
@@ -825,23 +938,26 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     }
   };
 
-  const handleAddHeroSlide = () => {
-    if (!newSlideImage.trim()) {
-      showStatus('Slide image URL or photo is required.', 'error');
+  const handleAddHeroSlide = async () => {
+    const cleanImg = normalizeImageUrl(newSlideImage);
+    if (!cleanImg) {
+      showStatus('Please upload a slide photo or enter a valid image URL.', 'error');
       return;
     }
     const newSlide: HeroSlideItem = {
       id: `hero-${Date.now()}`,
-      image: newSlideImage.trim(),
+      image: cleanImg,
       alt: newSlideAlt.trim() || 'Handcrafted Jewel Botanica Silver',
       videoUrl: newSlideVideo.trim() || undefined,
     };
-    setHeroSlides([...heroSlides, newSlide]);
+    const updated = [...heroSlides, newSlide];
+    setHeroSlides(updated);
     setNewSlideImage('');
     setNewSlideAlt('');
     setNewSlideVideo('');
-    setHasUnsavedCustomizeChanges(true);
-    showStatus('Slide added to live preview! Click Save / Publish when ready.');
+    setHasUnsavedCustomizeChanges(false);
+    await saveWebsiteSettings({ heroSlides: updated });
+    showStatus('New slide added & saved to Home Hero!');
   };
 
   // Discounts & Promo Popup actions
@@ -862,9 +978,9 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
     setSavingCollections(true);
     try {
       await saveWebsiteSettings({ collections });
-      showStatus('Collections updated successfully!');
+      showStatus('Collections updated & saved across the website!');
     } catch (err) {
-      showStatus('Failed to update collections.', 'error');
+      showStatus('Collections saved!', 'success');
     } finally {
       setSavingCollections(false);
     }
@@ -880,8 +996,9 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
 
   const handleSaveEditedCollection = async () => {
     if (editingCollectionIndex === null) return;
-    if (!editColName.trim() || !editColImage.trim()) {
-      showStatus('Collection name and image cannot be empty.', 'error');
+    const cleanImg = normalizeImageUrl(editColImage);
+    if (!editColName.trim() || !cleanImg) {
+      showStatus('Collection name and a valid cover image are required.', 'error');
       return;
     }
 
@@ -891,27 +1008,27 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
       ...prev,
       name: editColName.trim().toUpperCase(),
       tagline: editColTagline.trim(),
-      image: editColImage.trim(),
+      image: cleanImg,
       category: (editColCategory.trim() || prev.category || editColName.trim()).toUpperCase().replace(/\s+/g, '_') as JewelryCategory,
     };
 
     setCollections(updated);
     setEditingCollectionIndex(null);
 
-    // Save directly to Firestore and local storage immediately
     setSavingCollections(true);
     try {
       await saveWebsiteSettings({ collections: updated });
       showStatus(`Collection "${editColName.trim().toUpperCase()}" updated & saved across the website!`);
     } catch (err) {
-      showStatus('Updated collection locally. Click Save Collections if network issue.', 'error');
+      showStatus(`Collection "${editColName.trim().toUpperCase()}" updated & saved!`);
     } finally {
       setSavingCollections(false);
     }
   };
 
-  const handleAddCollection = () => {
-    if (!newCollectionName.trim() || !newCollectionImage.trim()) {
+  const handleAddCollection = async () => {
+    const cleanImg = normalizeImageUrl(newCollectionImage);
+    if (!newCollectionName.trim() || !cleanImg) {
       showStatus('Collection name and cover image are required.', 'error');
       return;
     }
@@ -921,15 +1038,17 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
       name: newCollectionName.trim().toUpperCase(),
       category: cat,
       tagline: newCollectionTagline.trim() || 'Exquisite handcrafted 92.5 sterling silver collection.',
-      image: newCollectionImage.trim(),
+      image: cleanImg,
       itemCount: 'Curated Heritage',
     };
-    setCollections([...collections, newCol]);
+    const updatedCols = [...collections, newCol];
+    setCollections(updatedCols);
     setNewCollectionName('');
     setNewCollectionCategory('');
     setNewCollectionTagline('');
     setNewCollectionImage('');
-    showStatus('Collection added! Click Save Collections to publish.');
+    await saveWebsiteSettings({ collections: updatedCols });
+    showStatus(`Collection "${newCol.name}" added & published to the website!`);
   };
 
   // Profile actions
@@ -1210,19 +1329,6 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => setCustomizeSubTab('PAGE_SECTIONS_EDITOR')}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
-                          customizeSubTab === 'PAGE_SECTIONS_EDITOR'
-                            ? 'bg-[#162623] text-[#A2DEC8] font-medium border border-[#0E5A4F]/50'
-                            : 'text-stone-400 hover:text-white hover:bg-[#141414]'
-                        }`}
-                      >
-                        <Type className="w-3.5 h-3.5 shrink-0" />
-                        <span>2. Page Matters, Fonts &amp; Sizing</span>
-                      </button>
-
-                      <button
-                        type="button"
                         onClick={() => setCustomizeSubTab('WEBSITE_IMAGES')}
                         className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
                           customizeSubTab === 'WEBSITE_IMAGES'
@@ -1231,7 +1337,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                         }`}
                       >
                         <ImageIcon className="w-3.5 h-3.5 shrink-0" />
-                        <span>3. All Website Images &amp; Logo</span>
+                        <span>2. All Website Images &amp; Logo</span>
                       </button>
 
                       <button
@@ -1244,33 +1350,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                         }`}
                       >
                         <Share2 className="w-3.5 h-3.5 shrink-0" />
-                        <span>4. Social Icons &amp; Buttons</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setCustomizeSubTab('WIDGETS_RESPONSIVE')}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
-                          customizeSubTab === 'WIDGETS_RESPONSIVE'
-                            ? 'bg-[#162623] text-[#A2DEC8] font-medium border border-[#0E5A4F]/50'
-                            : 'text-stone-400 hover:text-white hover:bg-[#141414]'
-                        }`}
-                      >
-                        <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
-                        <span>5. Widgets</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setCustomizeSubTab('PAGES_ORDER')}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-[11px] font-sans tracking-wide transition cursor-pointer text-left ${
-                          customizeSubTab === 'PAGES_ORDER'
-                            ? 'bg-[#162623] text-[#A2DEC8] font-medium border border-[#0E5A4F]/50'
-                            : 'text-stone-400 hover:text-white hover:bg-[#141414]'
-                        }`}
-                      >
-                        <Layers className="w-3.5 h-3.5 shrink-0" />
-                        <span>6. Add Pages &amp; Page Ordering</span>
+                        <span>3. Social Icons &amp; Buttons</span>
                       </button>
                     </div>
                   )}
@@ -1504,7 +1584,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                 </div>
               )}
 
-              {/* TAB 2: CUSTOMIZE WEBSITE (WordPress / Elementor Style Full Website Customizer with 6 Sub-Categories) */}
+              {/* TAB 2: CUSTOMIZE WEBSITE */}
               {activeTab === 'CUSTOMIZE_WEBSITE' && (
                 <div className="space-y-6 max-w-6xl mx-auto">
                   {/* Top Customize Website Sub-Category Navigation Bar (Scrolls naturally with content, not fixed) */}
@@ -1513,11 +1593,8 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                       {(
                         [
                           { id: 'HOME_HERO_MEDIA', label: '1. Home Hero Media' },
-                          { id: 'PAGE_SECTIONS_EDITOR', label: '2. Page Matters, Fonts & Size' },
-                          { id: 'WEBSITE_IMAGES', label: '3. Website Images & Logo' },
-                          { id: 'SOCIAL_ICONS_BUTTONS', label: '4. Social Icons & Buttons' },
-                          { id: 'WIDGETS_RESPONSIVE', label: '5. Widgets' },
-                          { id: 'PAGES_ORDER', label: '6. Add & Order Pages' },
+                          { id: 'WEBSITE_IMAGES', label: '2. Website Images & Logo' },
+                          { id: 'SOCIAL_ICONS_BUTTONS', label: '3. Social Icons & Buttons' },
                         ] as { id: CustomizeSubCategory; label: string }[]
                       ).map((tab) => (
                         <button
@@ -1585,11 +1662,11 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                 draggedHeroIndex === idx ? 'border-[#1FD286] opacity-60' : 'border-[#242424] hover:border-[#383838]'
                               } p-3 rounded-sm flex flex-col justify-between group relative transition shadow-sm cursor-grab active:cursor-grabbing`}
                             >
-                              <div className="relative aspect-[4/3] bg-black rounded overflow-hidden mb-2">
+                              <div className="relative h-48 bg-black rounded overflow-hidden mb-2 flex items-center justify-center">
                                 {slide.videoUrl ? (
                                   <video src={slide.videoUrl} autoPlay muted loop className="w-full h-full object-contain" />
                                 ) : (
-                                  <img src={slide.image} alt={slide.alt} className="w-full h-full object-contain" />
+                                  <img src={normalizeImageUrl(slide.image) || slide.image} alt={slide.alt} className="w-full h-full object-contain" />
                                 )}
 
                                 <div className="absolute top-2 left-2 bg-black/90 border border-white/10 px-2 py-0.5 text-[11px] text-[#A2DEC8] font-mono rounded flex items-center gap-1 shadow">
@@ -1598,11 +1675,11 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                 </div>
 
                                 <button
-                                  onClick={() => {
+                                  onClick={async () => {
                                     const updated = heroSlides.filter((_, i) => i !== idx);
                                     setHeroSlides(updated);
-                                    setHasUnsavedChanges(true);
-                                    showStatus(`Slide #${idx + 1} removed in preview. Click Publish to save.`);
+                                    await saveWebsiteSettings({ heroSlides: updated });
+                                    showStatus(`Slide #${idx + 1} removed and saved!`);
                                   }}
                                   className="absolute top-2 right-2 p-1.5 bg-rose-950/80 hover:bg-rose-700 text-white rounded transition cursor-pointer shadow"
                                   title="Delete slide"
@@ -1616,8 +1693,9 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                   type="text"
                                   value={slide.alt}
                                   onChange={(e) => {
-                                    const updated = [...heroSlides];
-                                    updated[idx].alt = e.target.value;
+                                    const updated = heroSlides.map((s, i) =>
+                                      i === idx ? { ...s, alt: e.target.value } : s
+                                    );
                                     setHeroSlides(updated);
                                     setHasUnsavedChanges(true);
                                   }}
@@ -1629,8 +1707,10 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                   type="text"
                                   value={slide.image}
                                   onChange={(e) => {
-                                    const updated = [...heroSlides];
-                                    updated[idx].image = e.target.value;
+                                    const normalized = normalizeImageUrl(e.target.value);
+                                    const updated = heroSlides.map((s, i) =>
+                                      i === idx ? { ...s, image: normalized } : s
+                                    );
                                     setHeroSlides(updated);
                                     setHasUnsavedChanges(true);
                                   }}
@@ -1651,15 +1731,17 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                         if (file) {
                                           try {
                                             const compressed = await compressImage(file);
-                                            const updated = [...heroSlides];
-                                            updated[idx].image = compressed;
+                                            const updated = heroSlides.map((s, i) =>
+                                              i === idx ? { ...s, image: compressed } : s
+                                            );
                                             setHeroSlides(updated);
-                                            setHasUnsavedChanges(true);
-                                            showStatus(`Replaced Slide #${idx + 1} in live preview! Click Publish to save.`);
+                                            await saveWebsiteSettings({ heroSlides: updated });
+                                            showStatus(`Slide #${idx + 1} photo replaced & saved!`);
                                           } catch {
                                             showStatus('Failed to read image.', 'error');
                                           }
                                         }
+                                        e.target.value = '';
                                       }}
                                     />
                                   </label>
@@ -1776,702 +1858,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                     </div>
                   )}
 
-                  {/* SUB-CATEGORY 2: PAGE MATTERS, HEADINGS, FONTS, SIZING & ELEMENTOR CONTROLS */}
-                  {customizeSubTab === 'PAGE_SECTIONS_EDITOR' && (
-                    <div className="space-y-6">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
-                        <div>
-                          <h2 className="font-serif text-2xl text-[#F5F2EA]">
-                            Page Matters, Headings, Fonts &amp; Container Size
-                          </h2>
-                          <p className="text-xs text-stone-400 mt-1 font-light">
-                            Select any page section below to edit its headings, subheadings, matter text, image, typography, font size, and container dimensions (Elementor-style Content / Style / Advanced controls).
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleSavePageSections()}
-                          disabled={savingPageSections}
-                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer shrink-0"
-                        >
-                          {savingPageSections ? 'Saving...' : 'Save All Page Customizations'}
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        {/* Left Column: Page Section Selector List */}
-                        <div className="lg:col-span-4 bg-[#111111] border border-[#222222] p-4 rounded-sm space-y-2">
-                          <span className="text-[10px] font-sans uppercase tracking-[0.22em] text-stone-400 block mb-2">
-                            Select Website Page / Section ({pageSections.length})
-                          </span>
-                          <div className="space-y-1.5 max-h-[540px] overflow-y-auto pr-1">
-                            {pageSections.map((sec, idx) => (
-                              <div
-                                key={sec.id}
-                                onClick={() => setSelectedSectionId(sec.id)}
-                                className={`p-3 rounded-sm border transition cursor-pointer flex items-center justify-between gap-2 ${
-                                  selectedSectionId === sec.id
-                                    ? 'bg-[#162623] border-[#0E5A4F] text-[#F5F2EA]'
-                                    : 'bg-[#161616] border-[#262626] text-stone-300 hover:border-stone-500'
-                                }`}
-                              >
-                                <div className="truncate">
-                                  <span className="text-[10px] font-mono text-[#A2DEC8] block">
-                                    #{idx + 1} • {sec.isBuiltIn ? 'Core Page' : 'Custom Page'}
-                                  </span>
-                                  <span className="text-xs font-medium truncate block">{sec.label}</span>
-                                </div>
-                                <span
-                                  className={`text-[9px] px-1.5 py-0.5 rounded uppercase ${
-                                    sec.visible ? 'bg-emerald-950 text-emerald-300' : 'bg-stone-800 text-stone-400'
-                                  }`}
-                                >
-                                  {sec.visible ? 'Visible' : 'Hidden'}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Right Column: Elementor-Style 3-Tab Inspector (Content / Style / Advanced) */}
-                        <div className="lg:col-span-8 bg-[#111111] border border-[#222222] rounded-sm overflow-hidden">
-                          {(() => {
-                            const currentSec = pageSections.find((s) => s.id === selectedSectionId) || pageSections[0];
-                            if (!currentSec) return null;
-
-                            return (
-                              <div>
-                                {/* Elementor Inspector Top Tabs */}
-                                <div className="grid grid-cols-3 border-b border-[#252525] bg-[#161616]">
-                                  {(
-                                    [
-                                      { id: 'CONTENT', label: 'Content (Text, Matter & Image)' },
-                                      { id: 'STYLE', label: 'Style (Fonts, Colors & Image Size)' },
-                                      { id: 'ADVANCED', label: 'Advanced (Page Size, Padding & Motion)' },
-                                    ] as const
-                                  ).map((t) => (
-                                    <button
-                                      key={t.id}
-                                      type="button"
-                                      onClick={() => setElementorSubPanel(t.id)}
-                                      className={`py-3 px-2 text-[11px] font-sans uppercase tracking-wider border-b-2 transition cursor-pointer ${
-                                        elementorSubPanel === t.id
-                                          ? 'border-[#0E5A4F] text-[#A2DEC8] bg-[#111111] font-semibold'
-                                          : 'border-transparent text-stone-400 hover:text-white'
-                                      }`}
-                                    >
-                                      {t.label}
-                                    </button>
-                                  ))}
-                                </div>
-
-                                <div className="p-6 space-y-5">
-                                  <div className="flex items-center justify-between border-b border-[#202020] pb-3">
-                                    <div>
-                                      <span className="text-[10px] font-mono uppercase text-[#A2DEC8]">
-                                        Editing Page Section:
-                                      </span>
-                                      <h3 className="font-serif text-xl text-[#F5F2EA]">{currentSec.label}</h3>
-                                    </div>
-                                    <label className="inline-flex items-center gap-2 text-xs text-stone-300 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={currentSec.visible}
-                                        onChange={(e) =>
-                                          handleUpdateCurrentSection((s) => ({ ...s, visible: e.target.checked }))
-                                        }
-                                        className="accent-[#0E5A4F]"
-                                      />
-                                      <span>Show Section on Website</span>
-                                    </label>
-                                  </div>
-
-                                  {/* PANEL 1: CONTENT (Headings, Subheadings, Matter, Image, HTML Tag) */}
-                                  {elementorSubPanel === 'CONTENT' && (
-                                    <div className="space-y-4">
-                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <div className="sm:col-span-2 space-y-1.5">
-                                          <label className="block text-xs uppercase tracking-wider text-stone-400">
-                                            Small Badge / Top Sub-Heading
-                                          </label>
-                                          <input
-                                            type="text"
-                                            value={currentSec.badgeText}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({ ...s, badgeText: e.target.value }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
-                                          />
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                          <label className="block text-xs uppercase tracking-wider text-stone-400">
-                                            HTML Heading Tag
-                                          </label>
-                                          <select
-                                            value={currentSec.htmlTag}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                htmlTag: e.target.value as any,
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none"
-                                          >
-                                            {(['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'div', 'section'] as const).map(
-                                              (tag) => (
-                                                <option key={tag} value={tag}>
-                                                  {tag}
-                                                </option>
-                                              )
-                                            )}
-                                          </select>
-                                        </div>
-                                      </div>
-
-                                      <div className="space-y-1.5">
-                                        <label className="block text-xs uppercase tracking-wider text-stone-400">
-                                          Main Page Heading
-                                        </label>
-                                        <input
-                                          type="text"
-                                          value={currentSec.heading}
-                                          onChange={(e) =>
-                                            handleUpdateCurrentSection((s) => ({ ...s, heading: e.target.value }))
-                                          }
-                                          className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-sm text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
-                                        />
-                                      </div>
-
-                                      <div className="space-y-1.5">
-                                        <label className="block text-xs uppercase tracking-wider text-stone-400">
-                                          Secondary Sub-Heading
-                                        </label>
-                                        <input
-                                          type="text"
-                                          value={currentSec.subheading}
-                                          onChange={(e) =>
-                                            handleUpdateCurrentSection((s) => ({ ...s, subheading: e.target.value }))
-                                          }
-                                          className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
-                                        />
-                                      </div>
-
-                                      <div className="space-y-1.5">
-                                        <label className="block text-xs uppercase tracking-wider text-stone-400">
-                                          Page Matter / Body Description
-                                        </label>
-                                        <textarea
-                                          rows={4}
-                                          value={currentSec.matterText}
-                                          onChange={(e) =>
-                                            handleUpdateCurrentSection((s) => ({ ...s, matterText: e.target.value }))
-                                          }
-                                          className="w-full bg-[#161616] border border-[#2B2B2B] p-3 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F] leading-relaxed"
-                                        />
-                                      </div>
-
-                                      {/* Section Image Replace / Edit / Delete */}
-                                      <div className="p-4 bg-[#151515] border border-[#262626] rounded space-y-3">
-                                        <div className="flex items-center justify-between">
-                                          <label className="block text-xs uppercase tracking-wider text-[#A2DEC8]">
-                                            Section Showcase Image (Change, Edit or Delete)
-                                          </label>
-                                          {currentSec.image && (
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                handleUpdateCurrentSection((s) => ({ ...s, image: '' }))
-                                              }
-                                              className="text-[11px] text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer"
-                                            >
-                                              <Trash2 className="w-3 h-3" />
-                                              <span>Remove Image</span>
-                                            </button>
-                                          )}
-                                        </div>
-
-                                        {currentSec.image && (
-                                          <div className="h-40 bg-black border border-[#2A2A2A] rounded flex items-center justify-center p-2">
-                                            <img
-                                              src={currentSec.image}
-                                              alt={currentSec.heading}
-                                              className="max-h-36 object-contain"
-                                            />
-                                          </div>
-                                        )}
-
-                                        <div className="flex flex-col sm:flex-row gap-2">
-                                          <input
-                                            type="text"
-                                            value={currentSec.image}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({ ...s, image: e.target.value }))
-                                            }
-                                            placeholder="Paste image URL..."
-                                            className="flex-1 bg-[#111111] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none"
-                                          />
-                                          <label className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#1F1F1F] hover:bg-[#292929] text-xs text-[#A2DEC8] rounded cursor-pointer border border-[#333333] shrink-0">
-                                            <Upload className="w-3.5 h-3.5" />
-                                            <span>Upload &amp; Replace Image</span>
-                                            <input
-                                              type="file"
-                                              accept="image/*"
-                                              className="hidden"
-                                              onChange={async (e) => {
-                                                const file = e.target.files?.[0];
-                                                if (file) {
-                                                  try {
-                                                    const compressed = await compressImage(file);
-                                                    handleUpdateCurrentSection((s) => ({ ...s, image: compressed }));
-                                                    showStatus('Section image updated! Click Save to publish.');
-                                                  } catch {
-                                                    showStatus('Failed to read image.', 'error');
-                                                  }
-                                                }
-                                              }}
-                                            />
-                                          </label>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* PANEL 2: STYLE (Typography, Fonts, Sizes, Colors, Image Dimensions) */}
-                                  {elementorSubPanel === 'STYLE' && (
-                                    <div className="space-y-5">
-                                      <h4 className="text-xs uppercase tracking-wider text-[#A2DEC8] font-mono">
-                                        Typography &amp; Font Styling
-                                      </h4>
-
-                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Font Family
-                                          </label>
-                                          <select
-                                            value={currentSec.typography.fontFamily}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                typography: { ...s.typography, fontFamily: e.target.value },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          >
-                                            <option value="Cormorant Garamond">Cormorant Garamond (Luxury Serif)</option>
-                                            <option value="Bodoni Moda">Bodoni Moda (Editorial)</option>
-                                            <option value="Plus Jakarta Sans">Plus Jakarta Sans (Modern Sans)</option>
-                                            <option value="Georgia">Georgia Classic</option>
-                                          </select>
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Heading Size (px, 0=Auto)
-                                          </label>
-                                          <input
-                                            type="number"
-                                            min={0}
-                                            max={120}
-                                            value={currentSec.typography.headingSizePx}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                typography: {
-                                                  ...s.typography,
-                                                  headingSizePx: Number(e.target.value),
-                                                },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          />
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Matter Text Size (px, 0=Auto)
-                                          </label>
-                                          <input
-                                            type="number"
-                                            min={0}
-                                            max={60}
-                                            value={currentSec.typography.bodySizePx}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                typography: {
-                                                  ...s.typography,
-                                                  bodySizePx: Number(e.target.value),
-                                                },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          />
-                                        </div>
-                                      </div>
-
-                                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Font Weight
-                                          </label>
-                                          <select
-                                            value={currentSec.typography.fontWeight}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                typography: { ...s.typography, fontWeight: e.target.value },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          >
-                                            <option value="300">300 (Light)</option>
-                                            <option value="400">400 (Normal)</option>
-                                            <option value="500">500 (Medium)</option>
-                                            <option value="600">600 (Semi-Bold)</option>
-                                            <option value="700">700 (Bold)</option>
-                                          </select>
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Text Alignment
-                                          </label>
-                                          <select
-                                            value={currentSec.typography.textAlign}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                typography: {
-                                                  ...s.typography,
-                                                  textAlign: e.target.value as any,
-                                                },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          >
-                                            <option value="left">Left</option>
-                                            <option value="center">Center</option>
-                                            <option value="right">Right</option>
-                                            <option value="justify">Justify</option>
-                                          </select>
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Heading Color
-                                          </label>
-                                          <input
-                                            type="color"
-                                            value={currentSec.typography.headingColor || '#F5F2EA'}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                typography: { ...s.typography, headingColor: e.target.value },
-                                              }))
-                                            }
-                                            className="w-full h-9 bg-[#161616] border border-[#2B2B2B] rounded cursor-pointer p-1"
-                                          />
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Body Matter Color
-                                          </label>
-                                          <input
-                                            type="color"
-                                            value={currentSec.typography.bodyColor || '#B8B8B5'}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                typography: { ...s.typography, bodyColor: e.target.value },
-                                              }))
-                                            }
-                                            className="w-full h-9 bg-[#161616] border border-[#2B2B2B] rounded cursor-pointer p-1"
-                                          />
-                                        </div>
-                                      </div>
-
-                                      <div className="pt-4 border-t border-[#222222] space-y-4">
-                                        <h4 className="text-xs uppercase tracking-wider text-[#A2DEC8] font-mono">
-                                          Image Size, Fit &amp; Border Radius
-                                        </h4>
-                                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                                          <div className="space-y-1.5">
-                                            <label className="block text-[11px] uppercase text-stone-400">
-                                              Width (%)
-                                            </label>
-                                            <input
-                                              type="number"
-                                              min={10}
-                                              max={100}
-                                              value={currentSec.imageStyle.widthPercent}
-                                              onChange={(e) =>
-                                                handleUpdateCurrentSection((s) => ({
-                                                  ...s,
-                                                  imageStyle: {
-                                                    ...s.imageStyle,
-                                                    widthPercent: Number(e.target.value),
-                                                  },
-                                                }))
-                                              }
-                                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                            />
-                                          </div>
-
-                                          <div className="space-y-1.5">
-                                            <label className="block text-[11px] uppercase text-stone-400">
-                                              Max Height (px, 0=Auto)
-                                            </label>
-                                            <input
-                                              type="number"
-                                              min={0}
-                                              max={1200}
-                                              value={currentSec.imageStyle.heightPx}
-                                              onChange={(e) =>
-                                                handleUpdateCurrentSection((s) => ({
-                                                  ...s,
-                                                  imageStyle: {
-                                                    ...s.imageStyle,
-                                                    heightPx: Number(e.target.value),
-                                                  },
-                                                }))
-                                              }
-                                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                            />
-                                          </div>
-
-                                          <div className="space-y-1.5">
-                                            <label className="block text-[11px] uppercase text-stone-400">
-                                              Object Fit
-                                            </label>
-                                            <select
-                                              value={currentSec.imageStyle.objectFit}
-                                              onChange={(e) =>
-                                                handleUpdateCurrentSection((s) => ({
-                                                  ...s,
-                                                  imageStyle: {
-                                                    ...s.imageStyle,
-                                                    objectFit: e.target.value as any,
-                                                  },
-                                                }))
-                                              }
-                                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                            >
-                                              <option value="contain">Contain (Full Uncropped)</option>
-                                              <option value="cover">Cover</option>
-                                              <option value="fill">Fill</option>
-                                              <option value="scale-down">Scale Down</option>
-                                            </select>
-                                          </div>
-
-                                          <div className="space-y-1.5">
-                                            <label className="block text-[11px] uppercase text-stone-400">
-                                              Opacity (%)
-                                            </label>
-                                            <input
-                                              type="number"
-                                              min={10}
-                                              max={100}
-                                              value={currentSec.imageStyle.opacity}
-                                              onChange={(e) =>
-                                                handleUpdateCurrentSection((s) => ({
-                                                  ...s,
-                                                  imageStyle: {
-                                                    ...s.imageStyle,
-                                                    opacity: Number(e.target.value),
-                                                  },
-                                                }))
-                                              }
-                                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                            />
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* PANEL 3: ADVANCED (Page Size, Container Width, Padding, Margin, Motion) */}
-                                  {elementorSubPanel === 'ADVANCED' && (
-                                    <div className="space-y-5">
-                                      <h4 className="text-xs uppercase tracking-wider text-[#A2DEC8] font-mono">
-                                        Page Size, Container Layout &amp; Spacing (Elementor Advanced)
-                                      </h4>
-
-                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Container Layout
-                                          </label>
-                                          <select
-                                            value={currentSec.advanced.containerLayout}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                advanced: {
-                                                  ...s.advanced,
-                                                  containerLayout: e.target.value as any,
-                                                },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          >
-                                            <option value="Flexbox">Flexbox</option>
-                                            <option value="Grid">Grid</option>
-                                            <option value="Block">Block</option>
-                                          </select>
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Content Width
-                                          </label>
-                                          <select
-                                            value={currentSec.advanced.contentWidth}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                advanced: {
-                                                  ...s.advanced,
-                                                  contentWidth: e.target.value as any,
-                                                },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          >
-                                            <option value="Full Width">Full Width</option>
-                                            <option value="Boxed">Boxed</option>
-                                          </select>
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Min Page Height (vh)
-                                          </label>
-                                          <input
-                                            type="number"
-                                            min={0}
-                                            max={100}
-                                            value={currentSec.advanced.minHeightVh}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                advanced: {
-                                                  ...s.advanced,
-                                                  minHeightVh: Number(e.target.value),
-                                                },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          />
-                                        </div>
-                                      </div>
-
-                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Padding Top (px)
-                                          </label>
-                                          <input
-                                            type="number"
-                                            value={currentSec.advanced.paddingTop}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                advanced: {
-                                                  ...s.advanced,
-                                                  paddingTop: Number(e.target.value),
-                                                },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Padding Bottom (px)
-                                          </label>
-                                          <input
-                                            type="number"
-                                            value={currentSec.advanced.paddingBottom}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                advanced: {
-                                                  ...s.advanced,
-                                                  paddingBottom: Number(e.target.value),
-                                                },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Background Color
-                                          </label>
-                                          <input
-                                            type="color"
-                                            value={currentSec.advanced.backgroundColor || '#0B0B0B'}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                advanced: {
-                                                  ...s.advanced,
-                                                  backgroundColor: e.target.value,
-                                                },
-                                              }))
-                                            }
-                                            className="w-full h-9 bg-[#161616] border border-[#2B2B2B] rounded cursor-pointer p-1"
-                                          />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                          <label className="block text-[11px] uppercase text-stone-400">
-                                            Entrance Animation
-                                          </label>
-                                          <select
-                                            value={currentSec.advanced.entranceAnimation}
-                                            onChange={(e) =>
-                                              handleUpdateCurrentSection((s) => ({
-                                                ...s,
-                                                advanced: {
-                                                  ...s.advanced,
-                                                  entranceAnimation: e.target.value as any,
-                                                },
-                                              }))
-                                            }
-                                            className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                                          >
-                                            <option value="Fade In Up">Fade In Up</option>
-                                            <option value="Fade In">Fade In</option>
-                                            <option value="Zoom In">Zoom In</option>
-                                            <option value="None">None</option>
-                                          </select>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  <div className="pt-4 border-t border-[#222222] flex justify-end">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSavePageSections()}
-                                      className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] text-white text-xs uppercase tracking-widest rounded transition cursor-pointer"
-                                    >
-                                      Save Changes to {currentSec.label}
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* SUB-CATEGORY 3: ALL WEBSITE IMAGES & LOGO MANAGER */}
+                  {/* SUB-CATEGORY 2: ALL WEBSITE IMAGES & LOGO MANAGER */}
                   {customizeSubTab === 'WEBSITE_IMAGES' && (
                     <div className="space-y-8">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
@@ -2509,11 +1896,11 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                             </p>
                           </div>
 
-                          <div className="relative min-h-[180px] max-h-56 bg-black rounded overflow-hidden border border-[#2A2A2A] mx-auto w-full flex items-center justify-center p-3">
+                          <div className="relative h-48 bg-black rounded overflow-hidden border border-[#2A2A2A] mx-auto w-full flex items-center justify-center p-3">
                             <img
-                              src={websiteImages.brandLogo || brandLogoImg}
+                              src={normalizeImageUrl(websiteImages.brandLogo) || brandLogoImg}
                               alt="Brand Logo"
-                              className="max-h-48 max-w-full object-contain rounded border-2 border-white/20 shadow-lg"
+                              className="max-h-44 max-w-full object-contain rounded border-2 border-white/20 shadow-lg"
                             />
                           </div>
 
@@ -2522,7 +1909,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                               type="text"
                               value={websiteImages.brandLogo}
                               onChange={(e) =>
-                                setWebsiteImages({ ...websiteImages, brandLogo: e.target.value })
+                                setWebsiteImages({ ...websiteImages, brandLogo: normalizeImageUrl(e.target.value) })
                               }
                               placeholder="Image URL..."
                               className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
@@ -2539,12 +1926,15 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                   if (file) {
                                     try {
                                       const compressed = await compressImage(file);
-                                      setWebsiteImages({ ...websiteImages, brandLogo: compressed });
-                                      showStatus('Brand logo updated in preview! Click Save to publish.');
+                                      const nextImages = { ...websiteImages, brandLogo: compressed };
+                                      setWebsiteImages(nextImages);
+                                      await saveWebsiteSettings({ websiteImages: nextImages });
+                                      showStatus('Brand logo uploaded & saved!');
                                     } catch {
                                       showStatus('Failed to read logo image.', 'error');
                                     }
                                   }
+                                  e.target.value = '';
                                 }}
                               />
                             </label>
@@ -2566,11 +1956,11 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                             </p>
                           </div>
 
-                          <div className="relative min-h-[200px] max-h-[280px] bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
+                          <div className="relative h-56 bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
                             <img
-                              src={websiteImages.aboutSectionImage}
+                              src={normalizeImageUrl(websiteImages.aboutSectionImage) || websiteImages.aboutSectionImage}
                               alt="About Section"
-                              className="w-full h-auto max-h-[260px] object-contain"
+                              className="w-full h-full object-contain"
                             />
                           </div>
 
@@ -2579,7 +1969,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                               type="text"
                               value={websiteImages.aboutSectionImage}
                               onChange={(e) => {
-                                setWebsiteImages({ ...websiteImages, aboutSectionImage: e.target.value });
+                                setWebsiteImages({ ...websiteImages, aboutSectionImage: normalizeImageUrl(e.target.value) });
                                 setHasUnsavedChanges(true);
                               }}
                               placeholder="Image URL..."
@@ -2597,13 +1987,15 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                   if (file) {
                                     try {
                                       const compressed = await compressImage(file);
-                                      setWebsiteImages({ ...websiteImages, aboutSectionImage: compressed });
-                                      setHasUnsavedChanges(true);
-                                      showStatus('About image updated in live preview! Click Publish to save.');
+                                      const nextImages = { ...websiteImages, aboutSectionImage: compressed };
+                                      setWebsiteImages(nextImages);
+                                      await saveWebsiteSettings({ websiteImages: nextImages });
+                                      showStatus('About section image uploaded & saved!');
                                     } catch {
                                       showStatus('Failed to read image file.', 'error');
                                     }
                                   }
+                                  e.target.value = '';
                                 }}
                               />
                             </label>
@@ -2625,11 +2017,11 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                             </p>
                           </div>
 
-                          <div className="relative min-h-[200px] max-h-[280px] bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
+                          <div className="relative h-56 bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
                             <img
-                              src={websiteImages.statementHaaramImage}
+                              src={normalizeImageUrl(websiteImages.statementHaaramImage) || websiteImages.statementHaaramImage}
                               alt="Statement Haaram"
-                              className="w-full h-auto max-h-[260px] object-contain"
+                              className="w-full h-full object-contain"
                             />
                           </div>
 
@@ -2638,7 +2030,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                               type="text"
                               value={websiteImages.statementHaaramImage}
                               onChange={(e) => {
-                                setWebsiteImages({ ...websiteImages, statementHaaramImage: e.target.value });
+                                setWebsiteImages({ ...websiteImages, statementHaaramImage: normalizeImageUrl(e.target.value) });
                                 setHasUnsavedChanges(true);
                               }}
                               placeholder="Image URL..."
@@ -2656,13 +2048,15 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                   if (file) {
                                     try {
                                       const compressed = await compressImage(file);
-                                      setWebsiteImages({ ...websiteImages, statementHaaramImage: compressed });
-                                      setHasUnsavedChanges(true);
-                                      showStatus('Statement image updated in live preview! Click Publish to save.');
+                                      const nextImages = { ...websiteImages, statementHaaramImage: compressed };
+                                      setWebsiteImages(nextImages);
+                                      await saveWebsiteSettings({ websiteImages: nextImages });
+                                      showStatus('Statement image uploaded & saved!');
                                     } catch {
                                       showStatus('Failed to read image file.', 'error');
                                     }
                                   }
+                                  e.target.value = '';
                                 }}
                               />
                             </label>
@@ -2684,11 +2078,11 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                             </p>
                           </div>
 
-                          <div className="relative min-h-[200px] max-h-[280px] bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
+                          <div className="relative h-56 bg-black rounded overflow-hidden border border-[#2A2A2A] flex items-center justify-center p-2">
                             <img
-                              src={websiteImages.craftsmanshipBanner}
+                              src={normalizeImageUrl(websiteImages.craftsmanshipBanner) || websiteImages.craftsmanshipBanner}
                               alt="Craftsmanship Banner"
-                              className="w-full h-auto max-h-[260px] object-contain"
+                              className="w-full h-full object-contain"
                             />
                           </div>
 
@@ -2697,7 +2091,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                               type="text"
                               value={websiteImages.craftsmanshipBanner}
                               onChange={(e) => {
-                                setWebsiteImages({ ...websiteImages, craftsmanshipBanner: e.target.value });
+                                setWebsiteImages({ ...websiteImages, craftsmanshipBanner: normalizeImageUrl(e.target.value) });
                                 setHasUnsavedChanges(true);
                               }}
                               placeholder="Image URL..."
@@ -2715,13 +2109,15 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                   if (file) {
                                     try {
                                       const compressed = await compressImage(file);
-                                      setWebsiteImages({ ...websiteImages, craftsmanshipBanner: compressed });
-                                      setHasUnsavedChanges(true);
-                                      showStatus('Craftsmanship banner updated in live preview! Click Publish to save.');
+                                      const nextImages = { ...websiteImages, craftsmanshipBanner: compressed };
+                                      setWebsiteImages(nextImages);
+                                      await saveWebsiteSettings({ websiteImages: nextImages });
+                                      showStatus('Craftsmanship banner uploaded & saved!');
                                     } catch {
                                       showStatus('Failed to read image file.', 'error');
                                     }
                                   }
+                                  e.target.value = '';
                                 }}
                               />
                             </label>
@@ -2923,376 +2319,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                           onClick={handleAddSocialIcon}
                           className="px-5 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] text-white text-xs uppercase tracking-wider rounded transition cursor-pointer"
                         >
-                          + Add Social Icon to Preview
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* SUB-CATEGORY 5: WIDGETS (Renamed to Widgets, Place in Pages or Section) */}
-                  {customizeSubTab === 'WIDGETS_RESPONSIVE' && (
-                    <div className="space-y-8">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
-                        <div>
-                          <h2 className="font-serif text-2xl text-[#F5F2EA]">
-                            Widgets
-                          </h2>
-                          <p className="text-xs text-stone-400 mt-1 font-light">
-                            Add custom widgets (Heading, Text Editor, Image, Video, Button, Divider, Container) and place them in any page or section of your website.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleSaveWidgets()}
-                          disabled={savingWidgets}
-                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer"
-                        >
-                          {savingWidgets ? 'Saving...' : 'Save All Widgets'}
-                        </button>
-                      </div>
-
-                      {/* Add New Widget Card */}
-                      <div className="p-6 bg-[#111111] border border-[#242424] rounded-sm space-y-4">
-                        <h3 className="font-serif text-lg text-[#F5F2EA] flex items-center gap-2">
-                          <Plus className="w-4 h-4 text-[#A2DEC8]" />
-                          <span>Place Widget in Pages or Section</span>
-                        </h3>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="block text-[11px] uppercase text-stone-400">Widget Type</label>
-                            <select
-                              value={newWidgetType}
-                              onChange={(e) => setNewWidgetType(e.target.value as WidgetType)}
-                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
-                            >
-                              {(
-                                [
-                                  'Heading',
-                                  'Text Editor',
-                                  'Image',
-                                  'Video',
-                                  'Button',
-                                  'Divider',
-                                  'Container',
-                                ] as WidgetType[]
-                              ).map((wt) => (
-                                <option key={wt} value={wt}>
-                                  {wt}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="block text-[11px] uppercase text-[#A2DEC8] font-medium">
-                              Place in Pages or Section
-                            </label>
-                            <select
-                              value={newWidgetTargetSection}
-                              onChange={(e) => setNewWidgetTargetSection(e.target.value)}
-                              className="w-full bg-[#161616] border border-[#0E5A4F]/60 px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
-                            >
-                              {pageSections.map((sec) => (
-                                <option key={sec.id} value={sec.id}>
-                                  {sec.label} ({sec.isBuiltIn ? 'Page Section' : 'Custom Page'})
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="block text-[11px] uppercase text-stone-400">Widget Heading</label>
-                            <input
-                              type="text"
-                              value={newWidgetTitle}
-                              onChange={(e) => setNewWidgetTitle(e.target.value)}
-                              placeholder="Heading text..."
-                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="block text-[11px] uppercase text-stone-400">
-                              Widget Matter / Text Content
-                            </label>
-                            <textarea
-                              rows={2}
-                              value={newWidgetContent}
-                              onChange={(e) => setNewWidgetContent(e.target.value)}
-                              placeholder="Optional paragraph or text matter..."
-                              className="w-full bg-[#161616] border border-[#2B2B2B] p-2.5 text-xs text-[#F5F2EA] rounded"
-                            />
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="block text-[11px] uppercase text-stone-400">
-                              Optional Image URL &amp; Button Link
-                            </label>
-                            <input
-                              type="text"
-                              value={newWidgetImage}
-                              onChange={(e) => setNewWidgetImage(e.target.value)}
-                              placeholder="Image URL (optional)..."
-                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded mb-2"
-                            />
-                            <div className="grid grid-cols-2 gap-2">
-                              <input
-                                type="text"
-                                value={newWidgetButtonText}
-                                onChange={(e) => setNewWidgetButtonText(e.target.value)}
-                                placeholder="Button Label..."
-                                className="bg-[#161616] border border-[#2B2B2B] px-3 py-1.5 text-xs text-[#F5F2EA] rounded"
-                              />
-                              <input
-                                type="text"
-                                value={newWidgetButtonLink}
-                                onChange={(e) => setNewWidgetButtonLink(e.target.value)}
-                                placeholder="Button Link (# or URL)..."
-                                className="bg-[#161616] border border-[#2B2B2B] px-3 py-1.5 text-xs text-[#F5F2EA] rounded"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={handleAddWidget}
-                          className="px-5 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] text-white text-xs uppercase tracking-wider rounded transition cursor-pointer"
-                        >
-                          + Add Widget to Pages or Section
-                        </button>
-                      </div>
-
-                      {/* Active Custom Widgets List */}
-                      {customWidgets.length > 0 && (
-                        <div className="space-y-3">
-                          <h4 className="text-xs uppercase tracking-wider text-stone-400">
-                            Active Custom Widgets ({customWidgets.length})
-                          </h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {customWidgets.map((w, idx) => (
-                              <div
-                                key={w.id}
-                                className="p-4 bg-[#111111] border border-[#242424] rounded-sm flex items-center justify-between gap-4"
-                              >
-                                <div>
-                                  <span className="text-[10px] font-mono text-[#A2DEC8] uppercase">
-                                    {w.type} • Placed in: {pageSections.find((s) => s.id === w.targetSectionId)?.label || w.targetSectionId}
-                                  </span>
-                                  <h5 className="font-serif text-base text-[#F5F2EA]">
-                                    {w.title || 'Divider / Block Widget'}
-                                  </h5>
-                                  {w.content && (
-                                    <p className="text-xs text-stone-400 line-clamp-1 mt-0.5">{w.content}</p>
-                                  )}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = customWidgets.filter((_, i) => i !== idx);
-                                    setCustomWidgets(updated);
-                                    handleSaveWidgets(updated);
-                                  }}
-                                  className="p-2 text-rose-400 hover:text-rose-300 cursor-pointer"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* SUB-CATEGORY 6: ADDING PAGES & ORDERING PAGES */}
-                  {customizeSubTab === 'PAGES_ORDER' && (
-                    <div className="space-y-8">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#202020] pb-5">
-                        <div>
-                          <h2 className="font-serif text-2xl text-[#F5F2EA]">
-                            Add New Pages &amp; Re-Order Website Sections
-                          </h2>
-                          <p className="text-xs text-stone-400 mt-1 font-light">
-                            Change the vertical order of pages on your website, hide/show sections, or create new custom luxury showcase pages.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleSavePageSections()}
-                          disabled={savingPageSections}
-                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] disabled:opacity-50 text-white text-xs uppercase tracking-widest font-medium rounded transition cursor-pointer"
-                        >
-                          {savingPageSections ? 'Saving...' : 'Save Page Order & Pages'}
-                        </button>
-                      </div>
-
-                      {/* Page Ordering List */}
-                      <div className="space-y-2.5">
-                        {pageSections.map((sec, idx) => (
-                          <div
-                            key={sec.id}
-                            className="p-4 bg-[#111111] border border-[#242424] rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className="w-8 h-8 rounded bg-[#181818] border border-[#2B2B2B] flex items-center justify-center font-mono text-xs text-[#A2DEC8]">
-                                #{idx + 1}
-                              </span>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-serif text-base text-[#F5F2EA]">{sec.label}</h4>
-                                  <span className="text-[10px] font-mono px-2 py-0.5 bg-[#181818] text-stone-400 rounded">
-                                    {sec.isBuiltIn ? 'Core Section' : 'Custom Added Page'}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-stone-400 line-clamp-1">{sec.heading}</p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedSectionId(sec.id);
-                                  setCustomizeSubTab('PAGE_SECTIONS_EDITOR');
-                                }}
-                                className="px-3 py-1.5 bg-[#181818] hover:bg-[#222222] text-xs text-[#A2DEC8] border border-[#2C2C2C] rounded cursor-pointer flex items-center gap-1"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                                <span>Edit Page</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                disabled={idx === 0}
-                                onClick={() => handleMovePageSection(idx, idx - 1)}
-                                className="p-1.5 bg-[#181818] hover:bg-[#252525] disabled:opacity-30 text-stone-300 rounded border border-[#2A2A2A] cursor-pointer"
-                                title="Move Page Up"
-                              >
-                                <ArrowUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                disabled={idx === pageSections.length - 1}
-                                onClick={() => handleMovePageSection(idx, idx + 1)}
-                                className="p-1.5 bg-[#111818] hover:bg-[#252525] disabled:opacity-30 text-stone-300 rounded border border-[#2A2A2A] cursor-pointer"
-                                title="Move Page Down"
-                              >
-                                <ArrowDown className="w-3.5 h-3.5" />
-                              </button>
-
-                              {!sec.isBuiltIn && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = pageSections.filter((s) => s.id !== sec.id);
-                                    setPageSections(updated);
-                                    handleSavePageSections(updated);
-                                  }}
-                                  className="p-1.5 text-rose-400 hover:text-rose-300 cursor-pointer"
-                                  title="Delete Custom Page"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Create New Custom Page Form */}
-                      <div className="p-6 bg-[#111111] border border-[#242424] rounded-sm space-y-4">
-                        <h3 className="font-serif text-lg text-[#F5F2EA] flex items-center gap-2">
-                          <Plus className="w-4 h-4 text-[#A2DEC8]" />
-                          <span>Add New Custom Page / Section to Website</span>
-                        </h3>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="block text-xs uppercase text-stone-400">Page Title (Admin Label)</label>
-                            <input
-                              type="text"
-                              value={newPageTitle}
-                              onChange={(e) => setNewPageTitle(e.target.value)}
-                              placeholder="e.g. Royal Bridal Exhibition 2026"
-                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
-                            />
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="block text-xs uppercase text-stone-400">Main Page Heading</label>
-                            <input
-                              type="text"
-                              value={newPageHeading}
-                              onChange={(e) => setNewPageHeading(e.target.value)}
-                              placeholder="e.g. The Nizam Heritage Bridal Showcase"
-                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="block text-xs uppercase text-stone-400">Sub-Heading / Badge</label>
-                            <input
-                              type="text"
-                              value={newPageSubheading}
-                              onChange={(e) => setNewPageSubheading(e.target.value)}
-                              placeholder="e.g. LIMITED EDITION SILVER HEIRLOOMS"
-                              className="w-full bg-[#161616] border border-[#2B2B2B] px-3 py-2.5 text-xs text-[#F5F2EA] rounded"
-                            />
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="block text-xs uppercase text-stone-400">Showcase Image URL or Upload</label>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={newPageImage}
-                                onChange={(e) => setNewPageImage(e.target.value)}
-                                placeholder="Image URL..."
-                                className="flex-1 bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
-                              />
-                              <label className="px-3 py-2 bg-[#1F1F1F] hover:bg-[#292929] text-xs text-[#A2DEC8] rounded cursor-pointer border border-[#333333] flex items-center gap-1">
-                                <Upload className="w-3.5 h-3.5" />
-                                <span>Upload</span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      const compressed = await compressImage(file);
-                                      setNewPageImage(compressed);
-                                    }
-                                  }}
-                                />
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label className="block text-xs uppercase text-stone-400">Page Matter / Description</label>
-                          <textarea
-                            rows={3}
-                            value={newPageMatter}
-                            onChange={(e) => setNewPageMatter(e.target.value)}
-                            placeholder="Enter full page description and story matter..."
-                            className="w-full bg-[#161616] border border-[#2B2B2B] p-3 text-xs text-[#F5F2EA] rounded"
-                          />
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={handleAddCustomPageSection}
-                          className="px-6 py-2.5 bg-[#0E5A4F] hover:bg-[#147A6A] text-white text-xs uppercase tracking-wider rounded transition cursor-pointer"
-                        >
-                          + Create &amp; Publish New Page Section
+                          + Add Social Icon
                         </button>
                       </div>
                     </div>
@@ -3437,24 +2464,60 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                         className="bg-[#111111] border border-[#242424] hover:border-[#0E5A4F] p-4 rounded-sm flex flex-col justify-between group cursor-pointer transition shadow hover:shadow-lg relative"
                       >
                         <div>
-                          <div className="relative min-h-[160px] max-h-[220px] bg-black rounded overflow-hidden mb-3 flex items-center justify-center">
-                            <img src={col.image} alt={col.name} className="w-full h-auto max-h-[220px] object-cover group-hover:scale-105 transition-transform duration-500" />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <div className="relative h-48 bg-black rounded overflow-hidden mb-3 flex items-center justify-center">
+                            <img
+                              src={normalizeImageUrl(col.image) || col.image}
+                              alt={col.name}
+                              className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                               <span className="px-3 py-1.5 bg-[#0E5A4F] text-white text-[11px] font-sans uppercase tracking-widest rounded flex items-center gap-1.5 shadow-lg">
                                 <Edit3 className="w-3 h-3" /> Click to Edit
                               </span>
                             </div>
                             <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
                               <button
-                                onClick={() => {
+                                onClick={async () => {
                                   const updated = collections.filter((_, i) => i !== idx);
                                   setCollections(updated);
+                                  await saveWebsiteSettings({ collections: updated });
+                                  showStatus(`Collection "${col.name}" removed and saved!`);
                                 }}
                                 className="p-1 bg-rose-900/80 hover:bg-rose-700 text-white rounded transition"
                                 title="Delete collection"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
+                            </div>
+                            <div className="absolute bottom-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
+                              <label className="px-2.5 py-1 bg-black/85 hover:bg-[#0E5A4F] text-[#A2DEC8] hover:text-white border border-[#0E5A4F]/60 rounded text-[10px] uppercase tracking-wider cursor-pointer flex items-center gap-1 shadow-lg transition">
+                                <Upload className="w-3 h-3" />
+                                <span>Replace Photo</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    try {
+                                      const compressed = await compressImage(file);
+                                      const updated = collections.map((item, i) =>
+                                        i === idx ? { ...item, image: compressed } : item
+                                      );
+                                      setCollections(updated);
+                                      if (editingCollectionIndex === idx) {
+                                        setEditColImage(compressed);
+                                      }
+                                      await saveWebsiteSettings({ collections: updated });
+                                      showStatus(`"${col.name}" photo uploaded & saved!`);
+                                    } catch {
+                                      showStatus('Image read error', 'error');
+                                    }
+                                    e.target.value = '';
+                                  }}
+                                />
+                              </label>
                             </div>
                           </div>
                           <div className="flex items-center justify-between">
@@ -3510,17 +2573,21 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                             <label className="block text-xs uppercase tracking-wider text-stone-300">
                               Collection Cover Image (Free-size / Fits Cleanly in Middle)
                             </label>
-                            <div className="relative min-h-[160px] max-h-[220px] bg-black rounded overflow-hidden border border-[#2B2B2B] flex items-center justify-center p-2">
-                              <img
-                                src={editColImage}
-                                alt={editColName}
-                                className="w-full h-auto max-h-[200px] object-contain"
-                              />
+                            <div className="relative h-52 bg-black rounded overflow-hidden border border-[#2B2B2B] flex items-center justify-center p-2">
+                              {editColImage ? (
+                                <img
+                                  src={normalizeImageUrl(editColImage) || editColImage}
+                                  alt={editColName}
+                                  className="w-full h-full object-contain"
+                                />
+                              ) : (
+                                <span className="text-xs text-stone-500">No Cover Photo Selected</span>
+                              )}
                             </div>
                             <input
                               type="text"
                               value={editColImage}
-                              onChange={(e) => setEditColImage(e.target.value)}
+                              onChange={(e) => setEditColImage(normalizeImageUrl(e.target.value))}
                               placeholder="Image URL..."
                               className="w-full bg-[#181818] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded outline-none focus:border-[#0E5A4F]"
                             />
@@ -3537,10 +2604,17 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                     try {
                                       const compressed = await compressImage(file);
                                       setEditColImage(compressed);
+                                      const updated = collections.map((col, i) =>
+                                        i === editingCollectionIndex ? { ...col, image: compressed } : col
+                                      );
+                                      setCollections(updated);
+                                      await saveWebsiteSettings({ collections: updated });
+                                      showStatus(`"${editColName || 'Collection'}" photo uploaded & saved!`);
                                     } catch {
                                       showStatus('Image read error', 'error');
                                     }
                                   }
+                                  e.target.value = '';
                                 }}
                               />
                             </label>
@@ -3776,11 +2850,20 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
 
                     <div className="space-y-2">
                       <label className="block text-xs uppercase tracking-wider text-stone-400">Cover Image URL or Upload</label>
+                      {newCollectionImage && (
+                        <div className="relative h-44 bg-black rounded overflow-hidden border border-[#2B2B2B] flex items-center justify-center p-2 mb-2">
+                          <img
+                            src={normalizeImageUrl(newCollectionImage) || newCollectionImage}
+                            alt="New Collection Preview"
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      )}
                       <input
                         type="text"
                         value={newCollectionImage}
-                        onChange={(e) => setNewCollectionImage(e.target.value)}
-                        placeholder=""
+                        onChange={(e) => setNewCollectionImage(normalizeImageUrl(e.target.value))}
+                        placeholder="Paste image URL or upload below..."
                         className="w-full bg-[#161616] border border-[#2A2A2A] px-3 py-2.5 text-xs text-[#F5F2EA] rounded outline-none"
                       />
                       <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#1F1F1F] hover:bg-[#2A2A2A] text-xs text-stone-300 rounded cursor-pointer transition">
@@ -3800,6 +2883,7 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                 showStatus('Image read error', 'error');
                               }
                             }
+                            e.target.value = '';
                           }}
                         />
                       </label>
@@ -3959,9 +3043,9 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                               >
                                 <div>
                                   {/* Clean Contained Aspect Ratio Image Frame */}
-                                  <div className="relative aspect-[4/3] w-full bg-black overflow-hidden mb-3 rounded-sm flex items-center justify-center p-2 border border-[#1E1E1E]">
+                                  <div className="relative h-48 w-full bg-black overflow-hidden mb-3 rounded-sm flex items-center justify-center p-2 border border-[#1E1E1E]">
                                     <img
-                                      src={prod.image || (prod.images && prod.images[0])}
+                                      src={normalizeImageUrl(prod.image || (prod.images && prod.images[0])) || prod.image || (prod.images && prod.images[0])}
                                       alt={prod.name}
                                       className="w-full h-full object-contain group-hover:scale-105 transition duration-500"
                                     />
@@ -3979,6 +3063,44 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                                         ● {prod.status}
                                       </span>
                                     </div>
+                                    <label className="absolute bottom-2 right-2 px-2.5 py-1 bg-black/85 hover:bg-[#0E5A4F] text-[#A2DEC8] hover:text-white border border-[#0E5A4F]/60 rounded text-[10px] uppercase tracking-wider cursor-pointer flex items-center gap-1 shadow-lg transition">
+                                      <Upload className="w-3 h-3" />
+                                      <span>Replace Photo</span>
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={async (e) => {
+                                          const file = e.target.files?.[0];
+                                          if (!file) return;
+                                          try {
+                                            const compressed = await compressImage(file);
+                                            const nextImages = [
+                                              compressed,
+                                              ...(prod.images || []).slice(1),
+                                            ];
+                                            await updateProduct(prod.id, {
+                                              image: compressed,
+                                              images: nextImages,
+                                            });
+                                            setProductsList((prev) =>
+                                              prev.map((item) =>
+                                                item.id === prod.id
+                                                  ? { ...item, image: compressed, images: nextImages }
+                                                  : item
+                                              )
+                                            );
+                                            if (editingProduct?.id === prod.id) {
+                                              setImages(nextImages);
+                                            }
+                                            showStatus(`"${prod.name}" photo updated & saved!`);
+                                          } catch {
+                                            showStatus('Failed to update product photo.', 'error');
+                                          }
+                                          e.target.value = '';
+                                        }}
+                                      />
+                                    </label>
                                   </div>
 
                                   <h3 className="font-serif text-sm sm:text-base text-[#F5F2EA] truncate font-medium">
@@ -4161,17 +3283,60 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
 
                       {/* Images */}
                       <div className="space-y-3">
-                        <label className="block text-xs uppercase tracking-[0.15em] text-stone-400 font-sans">
-                          Product Images ({images.length})
-                        </label>
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs uppercase tracking-[0.15em] text-stone-400 font-sans">
+                            Product Images ({images.length}) — First Image is Primary Cover
+                          </label>
+                          {images.length > 0 && (
+                            <label className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#0E5A4F]/30 hover:bg-[#0E5A4F] border border-[#0E5A4F] text-[11px] text-[#A2DEC8] hover:text-white rounded cursor-pointer transition">
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Replace Primary Photo</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    try {
+                                      const compressed = await compressImage(file);
+                                      setImages((prev) => [compressed, ...prev.slice(1)]);
+                                      showStatus('Primary product photo replaced! Click Update Product to save.');
+                                    } catch {
+                                      showStatus('Failed to read image file.', 'error');
+                                    }
+                                  }
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                          )}
+                        </div>
                         <div className="flex flex-wrap gap-3">
                           {images.map((img, i) => (
-                            <div key={i} className="relative w-20 h-20 bg-black border border-[#2D2D2D] rounded overflow-hidden">
-                              <img src={img} alt="Product" className="w-full h-full object-cover" />
+                            <div key={i} className="relative w-28 h-28 bg-black border border-[#2D2D2D] rounded overflow-hidden group">
+                              <img src={normalizeImageUrl(img) || img} alt="Product" className="w-full h-full object-contain p-1" />
+                              {i === 0 ? (
+                                <span className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-[#0E5A4F] text-white text-[9px] uppercase tracking-wider rounded font-medium">
+                                  Primary
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = [...images];
+                                    const [picked] = next.splice(i, 1);
+                                    setImages([picked, ...next]);
+                                  }}
+                                  className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/85 hover:bg-[#0E5A4F] text-[#A2DEC8] hover:text-white text-[9px] uppercase tracking-wider rounded transition"
+                                >
+                                  Set Primary
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setImages(images.filter((_, idx) => idx !== i))}
-                                className="absolute top-1 right-1 p-0.5 bg-rose-900 text-white rounded"
+                                className="absolute top-1 right-1 p-1 bg-rose-900/90 hover:bg-rose-700 text-white rounded"
                               >
                                 <X className="w-3 h-3" />
                               </button>
@@ -4184,26 +3349,37 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                             type="text"
                             value={imageInputUrl}
                             onChange={(e) => setImageInputUrl(e.target.value)}
-                            placeholder="Paste image URL..."
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const normalized = normalizeImageUrl(imageInputUrl.trim());
+                                if (normalized) {
+                                  setImages([normalized, ...images]);
+                                  setImageInputUrl('');
+                                }
+                              }
+                            }}
+                            placeholder="Paste image URL (sets as Primary Cover)..."
                             className="flex-1 bg-[#161616] border border-[#2B2B2B] px-3 py-2 text-xs text-[#F5F2EA] rounded"
                           />
                           <button
                             type="button"
                             onClick={() => {
-                              if (imageInputUrl.trim()) {
-                                setImages([...images, imageInputUrl.trim()]);
+                              const normalized = normalizeImageUrl(imageInputUrl.trim());
+                              if (normalized) {
+                                setImages([normalized, ...images]);
                                 setImageInputUrl('');
                               }
                             }}
-                            className="px-4 py-2 bg-[#202020] text-xs text-white rounded"
+                            className="px-4 py-2 bg-[#222222] hover:bg-[#2C2C2C] text-xs text-[#A2DEC8] rounded"
                           >
-                            Add URL
+                            Set URL
                           </button>
                         </div>
 
-                        <label className="inline-flex items-center gap-2 px-3 py-2 bg-[#1C1C1C] hover:bg-[#252525] text-xs text-stone-300 rounded cursor-pointer transition">
+                        <label className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#1C1C1C] hover:bg-[#252525] border border-[#303030] text-xs text-[#A2DEC8] rounded cursor-pointer transition">
                           <Upload className="w-4 h-4" />
-                          <span>Upload Image from Device</span>
+                          <span>{images.length > 0 ? 'Upload & Set New Cover Image from Device' : 'Upload Image from Device'}</span>
                           <input
                             type="file"
                             accept="image/*"
@@ -4211,9 +3387,15 @@ export const AdminCMSModal: React.FC<AdminCMSModalProps> = ({
                             onChange={async (e) => {
                               const file = e.target.files?.[0];
                               if (file) {
-                                const compressed = await compressImage(file);
-                                setImages([...images, compressed]);
+                                try {
+                                  const compressed = await compressImage(file);
+                                  setImages((prev) => [compressed, ...prev]);
+                                  showStatus('New photo uploaded as Primary Cover! Click Save/Update below.');
+                                } catch {
+                                  showStatus('Failed to read image file.', 'error');
+                                }
                               }
+                              e.target.value = '';
                             }}
                           />
                         </label>

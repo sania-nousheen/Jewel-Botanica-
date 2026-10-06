@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { MessageCircle, Eye, ChevronDown, ChevronUp } from 'lucide-react';
-import { CATALOGUE_ITEMS, BRAND_INFO } from '../data/jewelryData';
+import { CATALOGUE_ITEMS, BRAND_INFO, heroIsolatedJewelryImg } from '../data/jewelryData';
 import { JewelryCategory, JewelryItem } from '../types/jewelry';
 import { getPublishedProducts, getDeletedProductIds } from '../lib/productService';
-import { PageSectionItem } from '../lib/websiteSettingsService';
+import { PageSectionItem, normalizeImageUrl } from '../lib/websiteSettingsService';
 
 interface CatalogueProps {
   activeCategory: JewelryCategory;
@@ -195,9 +195,15 @@ export const Catalogue: React.FC<CatalogueProps> = ({
                   className="relative aspect-square sm:aspect-[4/3] w-full overflow-hidden bg-black cursor-pointer flex items-center justify-center p-2 border-b border-[#202020]"
                 >
                   <img
-                    src={item.image || (item.images && item.images[0])}
+                    src={normalizeImageUrl(item.image || (item.images && item.images[0])) || item.image || (item.images && item.images[0]) || heroIsolatedJewelryImg}
                     alt={item.name}
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (target.src !== heroIsolatedJewelryImg) {
+                        target.src = heroIsolatedJewelryImg;
+                      }
+                    }}
                     className="w-full h-full object-contain object-center transition-transform duration-700 ease-out group-hover:scale-105"
                   />
 

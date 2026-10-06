@@ -177,7 +177,7 @@ export const Hero: React.FC<HeroProps> = ({
         onMouseUp={handleMouseUpDrag}
       >
         <div
-          className="relative w-full max-w-[440px] sm:max-w-[580px] md:max-w-[700px] lg:max-w-[800px] aspect-[4/3] sm:aspect-[16/11] flex items-center justify-center transition-transform duration-700 ease-out"
+          className="relative w-full max-w-[440px] sm:max-w-[580px] md:max-w-[700px] lg:max-w-[800px] aspect-[4/3] sm:aspect-[16/11] flex items-center justify-center mx-auto transition-transform duration-700 ease-out"
           style={{
             transform: `translate3d(${mouseOffset.x + touchDeltaX * 0.25}px, ${mouseOffset.y}px, 0)`,
           }}

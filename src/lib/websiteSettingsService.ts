@@ -1,5 +1,6 @@
 import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { idbGet, idbSet } from './idbStorage';
 import {
   heroIsolatedJewelryImg,
   heroIsolatedChokerImg,
@@ -16,6 +17,8 @@ import {
   royalBajubandImg,
   solitaireRingImg,
   statementPendantNecklaceImg,
+  solitairePendantImg,
+  bridalEmeraldJhumkaImg,
   SIGNATURE_COLLECTIONS,
   BRAND_INFO,
 } from '../data/jewelryData';
@@ -228,10 +231,12 @@ export interface WebsiteCustomizationSettings {
   pageSections?: PageSectionItem[];
   socialIcons?: SocialIconItem[];
   customWidgets?: CustomWidgetItem[];
+  updatedAtMs?: number;
 }
 
 const SETTINGS_DOC_REF = doc(db, 'settings', 'website_config');
-const CACHE_CONFIG_KEY = 'jb_website_config_cache';
+const CACHE_CONFIG_KEY = 'jb_website_config_cache_v2';
+const LEGACY_CACHE_CONFIG_KEY = 'jb_website_config_cache';
 
 export const DEFAULT_TYPOGRAPHY_STYLE: SectionTypographyStyle = {
   fontFamily: 'Cormorant Garamond',
@@ -670,47 +675,228 @@ function mergePageSections(saved?: PageSectionItem[]): PageSectionItem[] {
   return result;
 }
 
+const BUILTIN_ASSET_MAP: Array<[string, string]> = [
+  ['hero_statement_haaram_1790612442396', heroHaaramImg],
+  ['statement_choker_emerald_1790612454817', statementChokerImg],
+  ['signature_jhumkas_earrings_1790612470730', signatureJhumkasImg],
+  ['bridal_mathapatti_hairpiece_1790612481414', bridalMathapattiImg],
+  ['royal_bajuband_vanki_1790612500060', royalBajubandImg],
+  ['solitaire_emerald_ring_1790612512321', solitaireRingImg],
+  ['statement_pendant_necklace_1790612524901', statementPendantNecklaceImg],
+  ['solitaire_pendant_chain_1790663321416', solitairePendantImg],
+  ['original_chandbali_crop_1790757530715', bridalEmeraldJhumkaImg],
+  ['atelier_craftsmanship_silver_1790612414133', craftsmanshipImg],
+  ['hero_isolated_jewelry_1790614237142', heroIsolatedJewelryImg],
+  ['hero_isolated_choker_1790844827818', heroIsolatedChokerImg],
+  ['hero_isolated_jhumkas_1790844845271', heroIsolatedJhumkasImg],
+  ['hero_isolated_mathapatti_1790844862481', heroIsolatedMathapattiImg],
+  ['hero_isolated_vanki_1790844880835', heroIsolatedVankiImg],
+  ['hero_isolated_collar_1790844899842', heroIsolatedCollarImg],
+  ['jewel_botanica_logo_1790614222826', brandLogoImg],
+];
+
+export function normalizeImageUrl(src?: string): string {
+  if (!src || typeof src !== 'string') return '';
+  const trimmed = src.trim();
+  if (!trimmed || trimmed === 'undefined' || trimmed === 'null' || trimmed === 'data:,') return '';
+  if (trimmed.startsWith('blob:')) return '';
+  if (trimmed.startsWith('data:')) {
+    return trimmed.startsWith('data:image/') && trimmed.length > 100 ? trimmed : '';
+  }
+
+  // Map any saved built-in asset filename (whether from dev /src/assets or prod /assets) to the active bundle URL
+  for (const [key, liveUrl] of BUILTIN_ASSET_MAP) {
+    if (trimmed.includes(key)) {
+      return liveUrl;
+    }
+  }
+
+  // Reject stale /src/assets or /assets paths that don't match known built-in assets
+  if (
+    !trimmed.startsWith('http://') &&
+    !trimmed.startsWith('https://') &&
+    !trimmed.startsWith('/') &&
+    !trimmed.startsWith('data:image/')
+  ) {
+    return '';
+  }
+
+  // Convert Google Drive sharing links to direct image links
+  const driveMatch =
+    trimmed.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/) ||
+    trimmed.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/) ||
+    trimmed.match(/drive\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/);
+  if (driveMatch && driveMatch[1]) {
+    return `https://lh3.googleusercontent.com/d/${driveMatch[1]}`;
+  }
+
+  // Convert Dropbox links to direct raw links
+  if (trimmed.includes('dropbox.com') && trimmed.includes('?dl=0')) {
+    return trimmed.replace('?dl=0', '?raw=1');
+  }
+
+  return trimmed;
+}
+
+export function isValidImageSrc(src?: string): boolean {
+  return normalizeImageUrl(src).length > 0;
+}
+
+function sanitizeCollections(saved?: CollectionCard[]): CollectionCard[] {
+  if (!saved || !Array.isArray(saved) || saved.length === 0) {
+    return SIGNATURE_COLLECTIONS;
+  }
+  const defaultMap = new Map<string, CollectionCard>();
+  SIGNATURE_COLLECTIONS.forEach((c) => {
+    defaultMap.set(c.id, c);
+    defaultMap.set(c.name.toUpperCase(), c);
+    defaultMap.set(c.category.toUpperCase(), c);
+  });
+
+  return saved.map((col, idx) => {
+    const fallback =
+      defaultMap.get(col.id) ||
+      defaultMap.get((col.name || '').toUpperCase()) ||
+      defaultMap.get((col.category || '').toUpperCase()) ||
+      SIGNATURE_COLLECTIONS[idx % SIGNATURE_COLLECTIONS.length];
+
+    const cleanImg = normalizeImageUrl(col.image);
+    return {
+      ...col,
+      id: col.id || fallback.id || `col-${idx}`,
+      name: col.name && col.name.trim() ? col.name.trim() : fallback.name,
+      category: col.category && col.category.trim() ? col.category : fallback.category,
+      tagline: col.tagline && col.tagline.trim() ? col.tagline : fallback.tagline,
+      image: cleanImg || fallback.image,
+      itemCount: col.itemCount || fallback.itemCount || 'Curated Collection',
+    };
+  });
+}
+
+function sanitizeHeroSlides(saved?: HeroSlideItem[]): HeroSlideItem[] {
+  if (!saved || !Array.isArray(saved) || saved.length === 0) {
+    return DEFAULT_HERO_SLIDES;
+  }
+  return saved.map((slide, idx) => {
+    const fallback = DEFAULT_HERO_SLIDES[idx % DEFAULT_HERO_SLIDES.length];
+    const cleanImg = normalizeImageUrl(slide.image);
+    return {
+      ...slide,
+      id: slide.id || fallback.id || `hero-${idx}`,
+      alt: slide.alt && slide.alt.trim() ? slide.alt : fallback.alt,
+      image: cleanImg || fallback.image,
+    };
+  });
+}
+
+function mergeWebsiteImages(saved?: Partial<WebsiteImagesSettings>): WebsiteImagesSettings {
+  const logo = normalizeImageUrl(saved?.brandLogo);
+  const about = normalizeImageUrl(saved?.aboutSectionImage);
+  const haaram = normalizeImageUrl(saved?.statementHaaramImage);
+  const craft = normalizeImageUrl(saved?.craftsmanshipBanner);
+
+  return {
+    brandLogo: logo || DEFAULT_WEBSITE_IMAGES.brandLogo,
+    aboutSectionImage: about || DEFAULT_WEBSITE_IMAGES.aboutSectionImage,
+    statementHaaramImage: haaram || DEFAULT_WEBSITE_IMAGES.statementHaaramImage,
+    craftsmanshipBanner: craft || DEFAULT_WEBSITE_IMAGES.craftsmanshipBanner,
+  };
+}
+
+let inMemorySettingsCache: WebsiteCustomizationSettings | null = null;
+
+function normalizeSettings(raw?: Partial<WebsiteCustomizationSettings> | null): WebsiteCustomizationSettings {
+  if (!raw) return DEFAULT_WEBSITE_SETTINGS;
+  return {
+    ...DEFAULT_WEBSITE_SETTINGS,
+    ...raw,
+    heroSlides: sanitizeHeroSlides(raw.heroSlides),
+    promoPopup: { ...DEFAULT_PROMO_POPUP, ...(raw.promoPopup || {}) },
+    profile: { ...DEFAULT_PROFILE, ...(raw.profile || {}) },
+    collections: sanitizeCollections(raw.collections),
+    websiteImages: mergeWebsiteImages(raw.websiteImages),
+    pageSections: DEFAULT_PAGE_SECTIONS,
+    socialIcons: raw.socialIcons && raw.socialIcons.length > 0 ? raw.socialIcons : DEFAULT_SOCIAL_ICONS,
+    customWidgets: [],
+    updatedAtMs: typeof raw.updatedAtMs === 'number' ? raw.updatedAtMs : 0,
+  };
+}
+
+// Clean up legacy bloated localStorage key once on module load so 5MB quota is freed
+try {
+  if (typeof window !== 'undefined' && localStorage.getItem(LEGACY_CACHE_CONFIG_KEY)) {
+    const legacyRaw = localStorage.getItem(LEGACY_CACHE_CONFIG_KEY);
+    localStorage.removeItem(LEGACY_CACHE_CONFIG_KEY);
+    if (legacyRaw && !localStorage.getItem(CACHE_CONFIG_KEY)) {
+      const parsed = JSON.parse(legacyRaw);
+      const migrated = normalizeSettings(parsed);
+      idbSet(CACHE_CONFIG_KEY, migrated);
+      try {
+        localStorage.setItem(CACHE_CONFIG_KEY, JSON.stringify(migrated));
+      } catch {
+        // IndexedDB holds full migrated copy
+      }
+    }
+  }
+} catch {
+  // ignore migration errors
+}
+
+function getLocalCachedSettingsSync(): WebsiteCustomizationSettings {
+  if (inMemorySettingsCache) {
+    return inMemorySettingsCache;
+  }
+  try {
+    const cached = localStorage.getItem(CACHE_CONFIG_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      const normalized = normalizeSettings(parsed);
+      inMemorySettingsCache = normalized;
+      return normalized;
+    }
+  } catch {
+    // ignore corrupt localStorage
+  }
+  return DEFAULT_WEBSITE_SETTINGS;
+}
+
 /**
  * Real-time subscription to website customization settings
  */
 export function subscribeWebsiteSettings(
   callback: (settings: WebsiteCustomizationSettings) => void
 ): () => void {
-  const getCachedSettings = (): WebsiteCustomizationSettings => {
-    const cached = localStorage.getItem(CACHE_CONFIG_KEY);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        return {
-          ...DEFAULT_WEBSITE_SETTINGS,
-          ...parsed,
-          heroSlides: parsed.heroSlides && parsed.heroSlides.length > 0 ? parsed.heroSlides : DEFAULT_HERO_SLIDES,
-          promoPopup: { ...DEFAULT_PROMO_POPUP, ...(parsed.promoPopup || {}) },
-          profile: { ...DEFAULT_PROFILE, ...(parsed.profile || {}) },
-          collections: parsed.collections && parsed.collections.length > 0 ? parsed.collections : SIGNATURE_COLLECTIONS,
-          websiteImages: { ...DEFAULT_WEBSITE_IMAGES, ...(parsed.websiteImages || {}) },
-          pageSections: mergePageSections(parsed.pageSections),
-          socialIcons: parsed.socialIcons && parsed.socialIcons.length > 0 ? parsed.socialIcons : DEFAULT_SOCIAL_ICONS,
-          customWidgets: Array.isArray(parsed.customWidgets) ? parsed.customWidgets : [],
-        };
-      } catch {
-        return DEFAULT_WEBSITE_SETTINGS;
+  // 1. Emit synchronous cached settings immediately
+  const initialSync = getLocalCachedSettingsSync();
+  callback(initialSync);
+
+  // 2. Load from IndexedDB (supports large base64 images even when localStorage quota is full)
+  idbGet<WebsiteCustomizationSettings>(CACHE_CONFIG_KEY).then((idbSettings) => {
+    if (idbSettings) {
+      const normalized = normalizeSettings(idbSettings);
+      const currentTs = inMemorySettingsCache?.updatedAtMs || 0;
+      if ((normalized.updatedAtMs || 0) >= currentTs) {
+        inMemorySettingsCache = normalized;
+        callback(normalized);
       }
     }
-    return DEFAULT_WEBSITE_SETTINGS;
-  };
+  });
 
-  // 1. Emit cached settings immediately
-  callback(getCachedSettings());
-
-  // 2. Listen for local immediate updates
-  const handleLocalChange = () => {
-    callback(getCachedSettings());
+  // 3. Listen for local immediate updates
+  const handleLocalChange = (e?: Event) => {
+    const customEvt = e as CustomEvent<WebsiteCustomizationSettings>;
+    if (customEvt && customEvt.detail) {
+      const normalized = normalizeSettings(customEvt.detail);
+      inMemorySettingsCache = normalized;
+      callback(normalized);
+    } else {
+      callback(getLocalCachedSettingsSync());
+    }
   };
   window.addEventListener(SETTINGS_CHANGE_EVENT, handleLocalChange);
   window.addEventListener('storage', handleLocalChange);
 
-  // 3. Subscribe to live Firestore document
+  // 4. Subscribe to live Firestore document (without overwriting newer local edits)
   let unsubFirestore: (() => void) | null = null;
   try {
     unsubFirestore = onSnapshot(
@@ -718,8 +904,16 @@ export function subscribeWebsiteSettings(
       (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data() as Partial<WebsiteCustomizationSettings>;
-          const currentCached = getCachedSettings();
-          const merged: WebsiteCustomizationSettings = {
+          const currentCached = getLocalCachedSettingsSync();
+          const remoteTs = typeof data.updatedAtMs === 'number' ? data.updatedAtMs : 0;
+          const localTs = currentCached.updatedAtMs || 0;
+
+          // If local cache has newer changes than Firestore (e.g. just uploaded an image), keep local cache
+          if (localTs > remoteTs && localTs > 0) {
+            return;
+          }
+
+          const merged = normalizeSettings({
             heroSlides: data.heroSlides && data.heroSlides.length > 0 ? data.heroSlides : currentCached.heroSlides,
             promoPopup: { ...DEFAULT_PROMO_POPUP, ...(data.promoPopup || currentCached.promoPopup) },
             collections: data.collections && data.collections.length > 0 ? data.collections : currentCached.collections,
@@ -728,12 +922,22 @@ export function subscribeWebsiteSettings(
               typeof data.instagramFollowersCount === 'number'
                 ? data.instagramFollowersCount
                 : currentCached.instagramFollowersCount,
-            websiteImages: { ...DEFAULT_WEBSITE_IMAGES, ...(data.websiteImages || currentCached.websiteImages) },
-            pageSections: mergePageSections(data.pageSections || currentCached.pageSections),
+            websiteImages: mergeWebsiteImages({
+              ...currentCached.websiteImages,
+              ...(data.websiteImages || {}),
+            }),
+            pageSections: DEFAULT_PAGE_SECTIONS,
             socialIcons: data.socialIcons && data.socialIcons.length > 0 ? data.socialIcons : currentCached.socialIcons,
-            customWidgets: Array.isArray(data.customWidgets) ? data.customWidgets : currentCached.customWidgets,
-          };
-          localStorage.setItem(CACHE_CONFIG_KEY, JSON.stringify(merged));
+            customWidgets: [],
+            updatedAtMs: Math.max(remoteTs, localTs),
+          });
+          inMemorySettingsCache = merged;
+          idbSet(CACHE_CONFIG_KEY, merged);
+          try {
+            localStorage.setItem(CACHE_CONFIG_KEY, JSON.stringify(merged));
+          } catch {
+            // IndexedDB already holds full copy
+          }
           callback(merged);
         }
       },
@@ -753,54 +957,75 @@ export function subscribeWebsiteSettings(
 }
 
 /**
- * Save updated website customization settings to both localStorage and Firestore
+ * Save updated website customization settings to IndexedDB, localStorage, and Firestore
  */
 export async function saveWebsiteSettings(
   settings: Partial<WebsiteCustomizationSettings>
 ): Promise<void> {
-  // Read current cached settings
-  let current: WebsiteCustomizationSettings = DEFAULT_WEBSITE_SETTINGS;
-  const raw = localStorage.getItem(CACHE_CONFIG_KEY);
-  if (raw) {
-    try {
-      current = { ...DEFAULT_WEBSITE_SETTINGS, ...JSON.parse(raw) };
-    } catch {
-      // Use default
-    }
-  }
+  const nowMs = Date.now();
+  const baseCurrent = inMemorySettingsCache || (await idbGet<WebsiteCustomizationSettings>(CACHE_CONFIG_KEY)) || getLocalCachedSettingsSync();
+  const current = normalizeSettings(baseCurrent);
 
-  const updated: WebsiteCustomizationSettings = {
+  const updated = normalizeSettings({
     ...current,
     ...settings,
+    heroSlides: settings.heroSlides ? sanitizeHeroSlides(settings.heroSlides) : current.heroSlides,
+    collections: settings.collections ? sanitizeCollections(settings.collections) : current.collections,
     promoPopup: settings.promoPopup ? { ...current.promoPopup, ...settings.promoPopup } : current.promoPopup,
     profile: settings.profile ? { ...current.profile, ...settings.profile } : current.profile,
-    websiteImages: settings.websiteImages ? { ...current.websiteImages, ...settings.websiteImages } : current.websiteImages,
-    pageSections: settings.pageSections ? mergePageSections(settings.pageSections) : current.pageSections,
+    websiteImages: settings.websiteImages
+      ? mergeWebsiteImages({ ...current.websiteImages, ...settings.websiteImages })
+      : mergeWebsiteImages(current.websiteImages),
+    pageSections: DEFAULT_PAGE_SECTIONS,
     socialIcons: settings.socialIcons ? settings.socialIcons : current.socialIcons,
-    customWidgets: settings.customWidgets ? settings.customWidgets : current.customWidgets,
-  };
+    customWidgets: [],
+    updatedAtMs: nowMs,
+  });
 
-  // 1. Immediately write to localStorage so the UI updates with zero delay
-  localStorage.setItem(CACHE_CONFIG_KEY, JSON.stringify(updated));
+  // 1. Immediately update in-memory cache and dispatch event so UI updates with zero delay
+  inMemorySettingsCache = updated;
+  window.dispatchEvent(new CustomEvent(SETTINGS_CHANGE_EVENT, { detail: updated }));
+
+  // 2. Persist full data (including high-res base64 images) to IndexedDB
+  await idbSet(CACHE_CONFIG_KEY, updated);
+
+  // 3. Also try localStorage (wrapped in try/catch so QuotaExceededError never breaks saving)
+  try {
+    localStorage.setItem(CACHE_CONFIG_KEY, JSON.stringify(updated));
+  } catch {
+    // IndexedDB has stored the full images safely
+  }
+
   if (typeof settings.instagramFollowersCount === 'number') {
-    localStorage.setItem('jb_instagram_community_count', settings.instagramFollowersCount.toString());
+    try {
+      localStorage.setItem('jb_instagram_community_count', settings.instagramFollowersCount.toString());
+    } catch {
+      // ignore
+    }
     window.dispatchEvent(new Event('jb_follower_count_changed'));
   }
 
-  // 2. Dispatch custom event so all active listeners on the page re-render instantly
-  window.dispatchEvent(new Event(SETTINGS_CHANGE_EVENT));
+  // 4. Persist to Firestore without ever blocking the UI for more than 800ms
+  const firestorePayload: Record<string, unknown> = {
+    updatedAtMs: nowMs,
+    updatedAt: serverTimestamp(),
+  };
+  if (settings.heroSlides) firestorePayload.heroSlides = updated.heroSlides;
+  if (settings.collections) firestorePayload.collections = updated.collections;
+  if (settings.websiteImages) firestorePayload.websiteImages = updated.websiteImages;
+  if (settings.promoPopup) firestorePayload.promoPopup = updated.promoPopup;
+  if (settings.profile) firestorePayload.profile = updated.profile;
+  if (settings.socialIcons) firestorePayload.socialIcons = updated.socialIcons;
+  if (typeof settings.instagramFollowersCount === 'number') {
+    firestorePayload.instagramFollowersCount = settings.instagramFollowersCount;
+  }
 
-  // 3. Persist to Firestore
   try {
-    await setDoc(
-      SETTINGS_DOC_REF,
-      {
-        ...settings,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
+    await Promise.race([
+      setDoc(SETTINGS_DOC_REF, firestorePayload, { merge: true }),
+      new Promise<void>((resolve) => setTimeout(resolve, 800)),
+    ]);
   } catch (err) {
-    console.warn('Firestore setDoc notice for website settings (saved locally):', err);
+    console.warn('Firestore setDoc notice for website settings (saved in IndexedDB):', err);
   }
 }

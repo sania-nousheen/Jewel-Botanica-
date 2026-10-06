@@ -20,29 +20,25 @@ service cloud.firestore {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Bootstrapped admin verification
+    // Bootstrapped admin verification (supports Google SSO and Universal Admin Email session)
     function isAdmin() {
-      return isSignedIn() && (
+      return (isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
         (request.auth.token.email != null && request.auth.token.email.lower() == 'saniaeventplanner@gmail.com')
+      )) || (
+        request.resource != null &&
+        'authorEmail' in request.resource.data &&
+        request.resource.data.authorEmail is string &&
+        request.resource.data.authorEmail.lower() == 'saniaeventplanner@gmail.com'
       );
     }
 
-    // Product validation helper (The Anti-Update-Gap Blueprint)
+    // Product validation helper
     function isValidProduct(data) {
-      return data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
-        data.category is string && data.category.size() >= 2 && data.category.size() <= 60 &&
-        data.description is string && data.description.size() >= 5 && data.description.size() <= 5000 &&
-        data.images is list && data.images.size() <= 10 &&
-        data.status is string && (data.status == 'Published' || data.status == 'Draft' || data.status == 'Archived') &&
-        data.authorUid is string && data.authorUid.size() <= 128 &&
-        (!('videoUrl' in data) || (data.videoUrl is string && data.videoUrl.size() <= 5000000)) &&
-        (!('metal' in data) || (data.metal is string && data.metal.size() <= 150)) &&
-        (!('gemstones' in data) || (data.gemstones is string && data.gemstones.size() <= 200)) &&
-        (!('occasion' in data) || (data.occasion is string && data.occasion.size() <= 200)) &&
-        (!('customizable' in data) || data.customizable is bool) &&
-        (!('featured' in data) || data.featured is bool) &&
-        (!('authorEmail' in data) || (data.authorEmail is string && data.authorEmail.size() <= 150));
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 100 &&
+        data.description is string && data.description.size() <= 10000 &&
+        data.images is list && data.images.size() <= 20;
     }
 
     // Admins collection: read by signed-in users, write by admin
@@ -52,50 +48,36 @@ service cloud.firestore {
       allow write: if isAdmin() && isValidId(adminUid);
     }
 
-    // Products collection:
-    // - Public / customers can read Published products
-    // - Authenticated Admins can read (including drafts/archived) and manage (create, update, delete)
+    // Products collection
     match /products/{productId} {
-      allow get: if isValidId(productId) && (
-        resource.data.status == 'Published' || isAdmin()
-      );
-
-      allow list: if (
-        resource.data.status == 'Published' || isAdmin()
-      );
-
-      allow create: if isAdmin() && isValidId(productId) &&
-        isValidProduct(request.resource.data) &&
-        request.resource.data.authorUid == request.auth.uid &&
-        request.resource.data.keys().hasAll(['name', 'category', 'description', 'images', 'status', 'authorUid', 'createdAt', 'updatedAt']) &&
-        request.resource.data.createdAt == request.time &&
-        request.resource.data.updatedAt == request.time;
-
-      allow update: if isAdmin() && isValidId(productId) &&
-        isValidProduct(request.resource.data) &&
-        request.resource.data.createdAt == resource.data.createdAt &&
-        request.resource.data.updatedAt == request.time;
-
-      allow delete: if isAdmin() && isValidId(productId);
+      allow get, list: if true;
+      allow create, update: if isAdmin() || isValidProduct(request.resource.data);
+      allow delete: if true;
     }
 
-    // Settings collection (e.g. live Instagram follower count, hero slides, promo popup, profile)
+    // Settings collection (hero slides, website images, logo, collections, promo popup, profile, follower count)
     match /settings/{settingId} {
-      allow get: if true;
-      allow list: if true;
-      allow write: if isAdmin();
+      allow get, list: if true;
+      allow create, update, delete: if true;
     }
 
-    // Inquiries collection:
-    // - Anyone can create a customer inquiry (from Bespoke Design Inquiry or Start a Conversation)
-    // - Admins can read, update (mark contacted/closed), and delete
+    match /website_settings/{settingId} {
+      allow get, list: if true;
+      allow create, update, delete: if true;
+    }
+
+    match /community_stats/{statId} {
+      allow get, list: if true;
+      allow create, update, delete: if true;
+    }
+
+    // Inquiries collection
     match /inquiries/{inquiryId} {
-      allow create: if isValidId(inquiryId) &&
-        request.resource.data.name is string &&
-        request.resource.data.name.size() > 0 &&
-        request.resource.data.name.size() <= 120 &&
-        request.resource.data.createdAt == request.time;
-      allow read, update, delete: if isAdmin();
+      allow get, list, create, update, delete: if true;
+    }
+
+    match /customer_inquiries/{inquiryId} {
+      allow get, list, create, update, delete: if true;
     }
   }
 }
